@@ -13,8 +13,8 @@ jobs:
     name: 控制系统算例
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: 检查 JavaScript 语法
@@ -40,8 +40,8 @@ jobs:
           - engine: webkit
             projects: --project=webkit --project=iphone
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -51,7 +51,7 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.engine }}
       - name: 验证图表、交互与无障碍规则
         run: npm run test:browser -- ${{ matrix.projects }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-test-${{ matrix.engine }}
