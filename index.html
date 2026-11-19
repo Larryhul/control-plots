@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="在线绘制根轨迹、Bode、Nyquist、Nichols 与闭环阶跃响应，实时调整参数并比较控制系统。">
+<title>自控绘图台 · 在线根轨迹与 Bode 图</title>
+<link rel="canonical" href="https://larryhul.github.io/control-plots/">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:title" content="自控绘图台 · 在线根轨迹与 Bode 图">
+<meta property="og:description" content="通过教材算例练习稳定性判断。输入传递函数并调节增益，实时查看和比较五种控制系统曲线。">
+<meta property="og:url" content="https://larryhul.github.io/control-plots/">
+<script>
+  try { const theme = localStorage.getItem('theme'); if (theme) document.documentElement.dataset.theme = theme; } catch (error) {}
+</script>
+<link rel="stylesheet" href="style.css?v=20261119">
+</head>
+<body>
+<header class="site-header">
+  <h1 class="brand">自控绘图台<span aria-hidden="true" class="brand-dot"></span></h1>
+  <nav class="site-actions" aria-label="网站操作">
+    <button id="share" class="share-button" type="button">分享<span aria-hidden="true">↗</span></button>
+    <details id="siteMenu" class="popover">
+      <summary class="menu-toggle" aria-label="打开网站菜单"><span class="menu-lines" aria-hidden="true"></span></summary>
+      <div class="popover-panel site-menu-panel">
+        <button id="theme" type="button">深色模式</button>
+        <button id="helpOpen" type="button">练习与帮助</button>
+      </div>
+    </details>
+  </nav>
+</header>
+<noscript><p class="noscript-note">请启用 JavaScript，绘图和计算在浏览器中完成。</p></noscript>
+
+<main class="workbench">
+  <aside class="controls" aria-label="调节系统参数">
+    <section class="gain-control">
+      <div class="control-heading"><h2>增益</h2><span class="parameter-symbol">K</span></div>
+      <div class="gain-number">
+        <button id="gainDecrease" type="button" class="step-button" aria-label="增益减小百分之十">−</button>
+        <input id="kNum" type="number" min="0" step="any" value="1" aria-label="增益 K">
+        <button id="gainIncrease" type="button" class="step-button" aria-label="增益增大百分之十">＋</button>
+      </div>
+      <div id="kErr" class="field-error" role="alert" hidden></div>
+      <div class="rulerwrap">
+        <svg id="ruler" viewBox="0 0 700 34" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div id="kbar"></div>
+        <input id="kSlider" type="range" min="-3" max="4" step="0.005" value="0" aria-label="增益对数滑块">
+      </div>
+      <div id="gainScale" class="scale"></div>
+      <p id="trackNote" class="gain-note"></p>
+    </section>
+
+    <details id="controlOptions" class="control-options" open>
+      <summary class="mobile-control-toggle">传递函数与示例<span aria-hidden="true">＋</span></summary>
+      <div class="model-controls">
+        <div class="preset-heading">
+          <label class="preset-label" for="ex">系统</label>
+          <button id="exerciseOpen" class="text-button" type="button">课堂练习<span aria-hidden="true">↗</span></button>
+        </div>
+        <select id="ex" aria-label="选择系统示例"><option value="">自定义系统</option></select>
+        <div class="inputs">
+          <label class="field"><span>分子 <i>N(s)</i></span><input id="num" type="text" spellcheck="false" autocomplete="off" aria-describedby="inputHelp"></label>
+          <label class="field"><span>分母 <i>D(s)</i></span><input id="den" type="text" spellcheck="false" autocomplete="off" aria-describedby="inputHelp"></label>
+        </div>
+        <div id="err" class="field-error" role="alert" hidden></div>
+        <p id="inputHelp" class="visually-hidden">可填写 s(s+1)(s+2) 形式的表达式，也可填写 1 3 2 0 形式的降幂系数。</p>
+        <details class="formula-preview"><summary>查看传递函数</summary><div id="tf" class="tf"></div></details>
+        <details id="advancedOptions" class="advanced-options">
+          <summary>仿真设置</summary>
+          <div class="advanced-fields">
+            <label class="field"><span>纯延迟 τ <small>秒</small></span><input id="tau" type="number" min="0" step="any" value="0"></label>
+            <label class="field"><span>仿真时长 <small>秒</small></span><input id="tEnd" type="number" min="0" step="any" placeholder="自动"></label>
+            <label class="check"><input id="neg" type="checkbox"><span>负增益 · 0° 根轨迹</span></label>
+          </div>
+        </details>
+      </div>
+    </details>
+  </aside>
+
+  <section class="workspace" aria-label="系统曲线">
+    <div class="workspace-heading">
+      <nav id="plotTabs" class="plot-tabs" aria-label="切换图表">
+        <button type="button" data-view="all" aria-pressed="true">总览</button>
+        <button type="button" data-view="rl" aria-pressed="false">根轨迹</button>
+        <button type="button" data-view="bode" aria-pressed="false">Bode</button>
+        <button type="button" data-view="nyq" aria-pressed="false">Nyquist</button>
+        <button type="button" data-view="nic" aria-pressed="false">Nichols</button>
+        <button type="button" data-view="step" aria-pressed="false">阶跃响应</button>
+      </nav>
+      <div id="status" class="status" role="status"></div>
+    </div>
+    <section id="kpis" class="kpis" aria-label="系统性能指标" tabindex="0"></section>
+
+    <div class="chart-actions">
+      <div class="comparison-actions">
+        <button id="compare" type="button" class="text-button">加入对比<span aria-hidden="true">＋</span></button>
+        <button id="clearCompare" type="button" class="text-button" hidden>清除对比</button>
+      </div>
+      <div class="secondary-actions">
+        <details id="frequencyMenu" class="popover">
+          <summary class="text-button">频率探针<span aria-hidden="true">⌄</span></summary>
+          <div class="popover-panel frequency-panel">
+            <label for="frequency">联动频率 <span>rad/s</span></label>
+            <input id="frequency" type="number" min="0" step="any" placeholder="输入频率">
+            <button id="clearFrequency" type="button">清除读数</button>
+          </div>
+        </details>
+        <details id="exportMenu" class="popover">
+          <summary class="text-button">导出<span aria-hidden="true">↗</span></summary>
+          <div class="popover-panel">
+            <button id="exportPNG" type="button">保存为图片 <span>PNG</span></button>
+            <button id="exportCSV" type="button">保存为数据 <span>CSV</span></button>
+          </div>
+        </details>
+      </div>
+    </div>
+    <p id="comparisonNote" class="comparison-note" hidden></p>
+
+    <section id="plots" class="figs" data-view="all">
+      <figure class="fig primary-figure root-figure" data-plot="rl">
+        <figcaption><h2>根轨迹</h2><button class="expand-plot" data-focus="rl" type="button" aria-label="放大根轨迹">↗</button></figcaption>
+        <canvas id="cRL" aria-label="根轨迹图，可点击轨迹选择增益"></canvas>
+        <div id="rRL" class="readout"></div>
+        <div class="plot-legend" data-legend="rl"></div>
+        <p id="rlModel" class="model-note" hidden></p>
+        <details class="calculation"><summary>计算过程</summary><div id="rootNotes"></div></details>
+      </figure>
+      <figure class="fig primary-figure bode-figure" data-plot="bode">
+        <figcaption><h2>Bode 图</h2><button class="expand-plot" data-focus="bode" type="button" aria-label="放大 Bode 图">↗</button></figcaption>
+        <canvas id="cMag" aria-label="Bode 幅频图"></canvas>
+        <canvas id="cPh" aria-label="Bode 相频图"></canvas>
+        <div id="rBode" class="readout"></div>
+        <div class="plot-legend" data-legend="mag"></div>
+        <details class="calculation"><summary>计算过程</summary><div id="bodeNotes"></div></details>
+      </figure>
+      <figure class="fig secondary-figure" data-plot="nyq">
+        <figcaption><h2>Nyquist</h2><button class="expand-plot" data-focus="nyq" type="button" aria-label="放大 Nyquist 图">↗</button></figcaption>
+        <canvas id="cNyq" aria-label="Nyquist 图"></canvas>
+        <div id="rNyq" class="readout"></div>
+        <div class="plot-legend" data-legend="nyq"></div>
+        <p id="nyqNote" class="model-note" hidden></p>
+      </figure>
+      <figure class="fig secondary-figure" data-plot="nic">
+        <figcaption><h2>Nichols</h2><button class="expand-plot" data-focus="nic" type="button" aria-label="放大 Nichols 图">↗</button></figcaption>
+        <canvas id="cNic" aria-label="Nichols 图"></canvas>
+        <div id="rNic" class="readout"></div>
+        <div class="plot-legend" data-legend="nic"></div>
+      </figure>
+      <figure class="fig secondary-figure" data-plot="step">
+        <figcaption><h2>阶跃响应</h2><button class="expand-plot" data-focus="step" type="button" aria-label="放大阶跃响应">↗</button></figcaption>
+        <canvas id="cStep" aria-label="闭环单位阶跃响应"></canvas>
+        <div id="rStep" class="readout"></div>
+        <div class="plot-legend" data-legend="step"></div>
+        <p id="mStep" class="model-note" hidden></p>
+      </figure>
+      <div class="results-figure" data-plot="info">
+        <details id="resultsDetails" class="results-details">
+          <summary>详细计算结果<span aria-hidden="true">＋</span></summary>
+          <div id="info" class="info"></div>
+        </details>
+      </div>
+    </section>
+  </section>
+</main>
+
+<p id="actionFeedback" class="toast" role="status" hidden></p>
+<dialog id="helpDialog" aria-labelledby="helpTitle">
+  <div class="dialog-heading"><h2 id="helpTitle">课堂练习</h2><button id="helpClose" type="button" class="close-button" aria-label="关闭练习与帮助">×</button></div>
+  <ul class="exercise-list">
+    <li><a data-exercise href="#n=1&amp;d=s%28s%2B1%29%28s%2B2%29&amp;k=6&amp;view=rl">找临界增益 <span aria-hidden="true">↗</span></a><p>从 K = 6 开始，分别试 K = 5 和 K = 7，观察闭环极点如何穿过虚轴。</p></li>
+    <li><a data-exercise href="#n=1&amp;d=s%28s%2B1%29%28s%2B2%29&amp;k=1&amp;view=bode&amp;w=1.4142135623730951">读 Bode 裕度 <span aria-hidden="true">↗</span></a><p>在相角 −180° 对应处读出幅值 −15.56 dB，得到幅值裕度 15.56 dB。</p></li>
+    <li><a data-exercise href="#n=1&amp;d=s%28s%2B2%29&amp;k=1&amp;t=12&amp;view=step">比较阶跃超调 <span aria-hidden="true">↗</span></a><p>先将 K = 1 加入对比，再改为 K = 4，观察超调如何出现。</p></li>
+  </ul>
+  <details class="help-instructions">
+    <summary>操作与模型说明</summary>
+    <ul>
+      <li>分子和分母支持表达式 <code>s(s+1)(s+2)</code> 与降幂系数 <code>1 3 2 0</code>。</li>
+      <li>点击根轨迹选择增益。悬停或点击频域图，各图同步标出对应频率。</li>
+      <li>滚轮缩放，拖动平移，双击复位。分享链接保存当前系统与对比模型。</li>
+    </ul>
+    <p>闭环采用单位负反馈。纯延迟计入频域分析，根轨迹与闭环极点使用 τ=0 模型，阶跃仿真适用于 τ=0。</p>
+    <a href="https://github.com/Larryhul/control-plots/issues">反馈问题</a>
+  </details>
+</dialog>
+<script src="js/math.js?v=20261119"></script>
+<script src="js/control.js?v=20261119"></script>
+<script src="js/plot.js?v=20261119"></script>
+<script src="js/app.js?v=20261119"></script>
+</body>
+</html>
