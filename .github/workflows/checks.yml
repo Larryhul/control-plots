@@ -41,10 +41,11 @@ jobs:
       - name: 安装测试依赖
         run: npm ci
       - name: 验证图表、交互与无障碍规则
-        run: npm run test:browser
+        # Firefox 要求浏览器进程和用户目录归同一用户所有。
+        run: runuser -u pwuser -- npm run test:browser -- --output /tmp/control-plots-browser-tests
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-test-results
-          path: test-results/
+          path: /tmp/control-plots-browser-tests/
           if-no-files-found: ignore
