@@ -1,5 +1,5 @@
 'use strict';
-/* 轻量 Canvas 绘图组件：滚轮缩放、拖动平移、双击复位、悬停/点击回调。无第三方依赖。
+/* 轻量 Canvas 绘图组件。鼠标、触屏和键盘均可读图。
    xlog=true 时数据的 x 坐标应为 log10(ω)，组件只负责对数刻度的绘制。 */
 
 function niceTicks(a, b, target, mode) {
@@ -37,6 +37,7 @@ class Plot {
     this.series = []; this.markers = []; this.hlines = []; this.vlines = []; this.legend = [];
     this.regions = [];
     this.cursor = null; this.vcursor = null; this.message = '';
+    this.keyboardPosition = [0.5, 0.5];
     this.userView = false;
     this.m = { l: 62, r: 16, t: 16, b: 44 };
     this.W = 0; this.H = 0;
@@ -71,6 +72,75 @@ class Plot {
   invX(px) { return this.view[0] + (px - this.m.l) / this.pw * (this.view[1] - this.view[0]); }
   invY(py) { return this.view[3] - (py - this.m.t) / this.ph * (this.view[3] - this.view[2]); }
 
+  _point(px, py) { return { x: this.invX(px), y: this.invY(py), px, py }; }
+
+  _zoomAt(px, py, factor) {
+    const v = this.view, x = this.invX(px), y = this.invY(py);
+    const width = (v[1] - v[0]) * factor;
+    if (width < 1e-9 || width > 1e12) return false;
+    v[0] = x + (v[0] - x) * factor;
+    v[1] = x + (v[1] - x) * factor;
+    if (this.o.zoom === 'xy') {
+      v[2] = y + (v[2] - y) * factor;
+      v[3] = y + (v[3] - y) * factor;
+    }
+    this._changed();
+    return true;
+  }
+
+  _panFrom(view, dx, dy) {
+    const x = dx * (view[1] - view[0]) / this.pw;
+    const y = dy * (view[3] - view[2]) / this.ph;
+    this.view[0] = view[0] - x;
+    this.view[1] = view[1] - x;
+    if (this.o.zoom === 'xy') {
+      this.view[2] = view[2] + y;
+      this.view[3] = view[3] + y;
+    }
+    this._changed();
+  }
+
+  _resetView() {
+    this.setHome(this.home, true);
+    this.o.onView?.(this);
+    this.draw();
+  }
+
+  _onKey(event) {
+    if (!this.W || event.ctrlKey || event.metaKey || event.altKey) return;
+    const directions = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const direction = directions[event.key];
+    const key = event.key;
+    if (!direction && !['+', '=', '-', '_', '0', 'Home', 'Enter'].includes(key)) return;
+    event.preventDefault();
+
+    let message;
+    if (direction && event.shiftKey) {
+      const [dx, dy] = direction;
+      if (dx || this.o.zoom === 'xy') {
+        this._panFrom(this.view.slice(), -dx * this.pw / 10, -dy * this.ph / 10);
+        message = '已平移图表';
+      } else message = '使用 Shift 加左右键平移频率轴';
+    } else if (direction) {
+      this.keyboardPosition = this.keyboardPosition.map((position, i) => Math.max(0, Math.min(1, position + direction[i] / 20)));
+    } else if (key === 'Home' || key === '0') {
+      this.keyboardPosition = [0.5, 0.5];
+      this._resetView();
+      message = '已恢复图表默认视图';
+    }
+
+    const [x, y] = this.keyboardPosition;
+    const point = { ...this._point(this.m.l + x * this.pw, this.m.t + y * this.ph), keyboard: true };
+    if (key === 'Enter') this.o.onClick?.(point);
+    else if (key === '+' || key === '=' || key === '-' || key === '_') {
+      const zoomIn = key === '+' || key === '=';
+      const changed = this._zoomAt(point.px, point.py, zoomIn ? 0.8 : 1.25);
+      message = changed ? (zoomIn ? '已放大图表' : '已缩小图表') : '已到缩放范围边界';
+    }
+    if (key !== 'Enter') this.o.onHover?.({ ...this._point(point.px, point.py), keyboard: true });
+    this.o.onKeyboard?.(message);
+  }
+
   _events() {
     const c = this.c;
     const pos = e => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
@@ -81,11 +151,7 @@ class Plot {
       if (!inside(px, py)) return;
       e.preventDefault();
       const f = Math.exp(Math.max(-1, Math.min(1, e.deltaY * 0.0016)));
-      const x = this.invX(px), y = this.invY(py), v = this.view;
-      if ((v[1] - v[0]) * f < 1e-9 || (v[1] - v[0]) * f > 1e12) return;
-      v[0] = x + (v[0] - x) * f; v[1] = x + (v[1] - x) * f;
-      if (this.o.zoom === 'xy') { v[2] = y + (v[2] - y) * f; v[3] = y + (v[3] - y) * f; }
-      this._changed();
+      this._zoomAt(px, py, f);
     }, { passive: false });
     c.addEventListener('pointerdown', e => {
       const [px, py] = pos(e);
@@ -99,12 +165,9 @@ class Plot {
         const dx = px - drag.px, dy = py - drag.py;
         if (!drag.moved && Math.hypot(dx, dy) < 4) return;
         drag.moved = true;
-        const v = drag.v, sx = (v[1] - v[0]) / this.pw, sy = (v[3] - v[2]) / this.ph;
-        this.view[0] = v[0] - dx * sx; this.view[1] = v[1] - dx * sx;
-        if (this.o.zoom === 'xy') { this.view[2] = v[2] + dy * sy; this.view[3] = v[3] + dy * sy; }
-        this._changed();
+        this._panFrom(drag.v, dx, dy);
       } else if (this.o.onHover) {
-        this.o.onHover(inside(px, py) ? { x: this.invX(px), y: this.invY(py), px, py } : null);
+        this.o.onHover(inside(px, py) ? this._point(px, py) : null);
       }
     });
     const up = e => {
@@ -112,19 +175,14 @@ class Plot {
       const d = drag; drag = null;
       if (!d.moved && e.type === 'pointerup' && this.o.onClick) {
         const [px, py] = pos(e);
-        if (inside(px, py)) this.o.onClick({ x: this.invX(px), y: this.invY(py), px, py });
+        if (inside(px, py)) this.o.onClick(this._point(px, py));
       }
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (!drag && this.o.onHover) this.o.onHover(null); });
-    c.addEventListener('dblclick', () => {
-      this.userView = false;
-      this.view = this.home.slice();
-      if (this.o.equal) this.fixAspect();
-      if (this.o.onView) this.o.onView(this);
-      this.draw();
-    });
+    c.addEventListener('dblclick', () => this._resetView());
+    c.addEventListener('keydown', event => this._onKey(event));
   }
   _changed() {
     this.userView = true;

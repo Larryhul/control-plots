@@ -1,7 +1,8 @@
-name: 数值回归
+name: 项目检查
 
 on:
   push:
+    branches: ['**']
   pull_request:
 
 permissions:
@@ -22,4 +23,37 @@ jobs:
             node --check "$file"
           done
       - name: 核对教材与边界算例
-        run: node --test
+        run: npm test
+
+  browser-tests:
+    name: 浏览器回归（${{ matrix.engine }}）
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: chromium
+            projects: --project=chromium --project=android
+          - engine: firefox
+            projects: --project=firefox
+          - engine: webkit
+            projects: --project=webkit --project=iphone
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: 安装测试依赖
+        run: npm ci
+      - name: 安装测试浏览器
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: 验证图表、交互与无障碍规则
+        run: npm run test:browser -- ${{ matrix.projects }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-${{ matrix.engine }}
+          path: test-results/
+          if-no-files-found: ignore

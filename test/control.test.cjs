@@ -42,12 +42,62 @@ test('The cubic classroom model has the Routh boundary K = 6 and poles at ±j√
   assert.equal(Ctl.closedStatus(model, 1, 7).kind, 'unstable');
   const boundary = Ctl.closedStatus(model, 1, 6);
   assert.equal(boundary.kind, 'marginal');
+  assert.equal(boundary.repeatedAxis, false);
   near(Math.abs(boundary.poles[0][1]), Math.SQRT2, 1e-10);
   near(Ctl.jwCross(model, 1).list[0].K, 6, 1e-10);
   const result = marginsFor(model, 1);
   near(result.bestP.w, Math.SQRT2, 1e-10);
   near(result.bestP.gm, 20 * Math.log10(6), 1e-9);
   near(result.bestG.pm, 53.4107861777, 1e-7);
+});
+
+test('A double pole at the origin is unstable and the step response grows as t²/2', () => {
+  const model = solve('1', 's^2-1');
+  const status = Ctl.closedStatus(model, 1, 1);
+  assert.equal(status.kind, 'unstable');
+  assert.equal(status.repeatedAxis, true);
+  assert.equal(status.rightCount, 0);
+  assert.equal(status.axisCount, 2);
+  assert.equal(Ctl.closedStatus(model, 1, 0.9).kind, 'unstable');
+  assert.equal(Ctl.closedStatus(model, 1, 1.1).kind, 'marginal');
+  const step = Ctl.step(model, 1, 1, 4);
+  assert.equal(step.stable, false);
+  near(step.y[1000], 2, 1e-10);
+  near(step.y.at(-1), 8, 1e-10);
+});
+
+test('Repeated imaginary pairs are unstable and remain on the imaginary axis', () => {
+  for (const [denominator, rightCount] of [['(s^2+4)^2-1', 0], ['(s^2+4)^2(s-2)-1', 1]]) {
+    const status = Ctl.closedStatus(solve('1', denominator), 1, 1);
+    assert.equal(status.kind, 'unstable');
+    assert.equal(status.repeatedAxis, true);
+    assert.equal(status.rightCount, rightCount);
+    assert.equal(status.axisCount, 4);
+    for (const [re, im] of status.poles.filter(p => p[0] === 0)) {
+      assert.equal(re, 0);
+      near(Math.abs(im), 2, 1e-12);
+    }
+  }
+  const separate = Ctl.closedStatus(solve('1', '(s^2+1)(s^2+4)-1'), 1, 1);
+  assert.equal(separate.kind, 'marginal');
+  assert.equal(separate.repeatedAxis, false);
+  assert.equal(separate.axisCount, 4);
+  const damped = Ctl.closedStatus(solve('1', '((s+0.001)^2+4)^2-1'), 1, 1);
+  assert.equal(damped.kind, 'stable');
+  assert.equal(damped.repeatedAxis, false);
+});
+
+test('Close poles on opposite sides of the imaginary axis are kept distinct', () => {
+  const model = solve('1', '((s-0.00001)^2+1)((s+0.00001)^2+1)-1');
+  const status = Ctl.closedStatus(model, 1, 1);
+  assert.equal(status.kind, 'unstable');
+  assert.equal(status.rightCount, 2);
+  assert.equal(status.axisCount, 0);
+  assert.equal(status.repeatedAxis, false);
+  for (const [re, im] of status.poles) {
+    near(Math.abs(re), 0.00001, 1e-8);
+    near(Math.abs(im), 1, 1e-8);
+  }
 });
 
 test('The first-order magnitude crossover is located below the drawing sample floor', () => {
@@ -124,4 +174,15 @@ test('The second-order step response matches the textbook overshoot at ζ = 0.5'
   const step = Ctl.step(model, 1, 4, 12);
   near(step.yss, 1, 1e-10);
   near(step.os, 100 * Math.exp(-Math.PI / Math.sqrt(3)), 1e-3);
+});
+
+test('A 24th-order model matches its analytic stability boundary', () => {
+  const order = 24;
+  const model = solve('1', `(s+1)^${order}`);
+  const boundary = Math.pow(1 / Math.cos(Math.PI / order), order);
+  const atOne = Ctl.closedStatus(model, 1, 1);
+  assert.equal(atOne.poles.length, order);
+  near(Math.max(...atOne.poles.map(pole => pole[0])), Math.cos(Math.PI / order) - 1, 1e-10);
+  assert.equal(Ctl.closedStatus(model, 1, boundary * 0.99).kind, 'stable');
+  assert.equal(Ctl.closedStatus(model, 1, boundary * 1.01).rightCount, 2);
 });

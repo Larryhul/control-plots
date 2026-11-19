@@ -86,6 +86,7 @@ sup, sub { font-size: .72em; }
 .control-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .control-heading h2 { margin: 0; font-size: 24px; font-weight: 500; line-height: 1.2; }
 .parameter-symbol { font: italic 23px var(--math); color: var(--muted); }
+.control-heading .text-button { min-height: 40px; }
 .gain-number { display: flex; align-items: center; gap: 12px; }
 #kNum { min-width: 0; width: 100%; padding: 0 4px; height: 58px; border: 0; border-bottom: 1px solid transparent; outline: 0; background: transparent; color: var(--fg); font: 400 40px/1.2 var(--ui); text-align: center; font-variant-numeric: tabular-nums; }
 #kNum:focus, #kNum[aria-invalid=true] { border-bottom-color: var(--sig); }
@@ -109,8 +110,6 @@ sup, sub { font-size: .72em; }
 .mobile-control-toggle { display: none; }
 .model-controls { display: grid; gap: 16px; padding-top: 24px; border-top: 1px solid var(--line); }
 .preset-label { color: var(--fg); font-size: 21px; font-weight: 500; }
-.preset-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.preset-heading .text-button { min-height: 34px; padding: 0; }
 #ex { width: 100%; min-width: 0; min-height: 48px; padding: 10px 32px 10px 13px; border: 1px solid transparent; border-radius: 3px; background: var(--surface); color: var(--fg); font-size: 16px; cursor: pointer; }
 #ex option { background: var(--paper); color: var(--fg); }
 .inputs { display: grid; gap: 16px; margin-top: 3px; }
@@ -172,6 +171,7 @@ figcaption h2 { margin: 0; font-size: 24px; line-height: 1.3; font-weight: 500; 
 .expand-plot { display: grid; place-items: center; flex: none; width: 38px; height: 38px; padding: 0; background: transparent; color: var(--fg2); border: 0; border-radius: 50%; font-size: 23px; line-height: 1; }
 .expand-plot:hover { background: color-mix(in srgb, var(--fg) 7%, transparent); color: var(--fg); }
 canvas { display: block; width: 100%; cursor: crosshair; touch-action: pan-y; }
+canvas:focus-visible { outline: 2px solid var(--sig); outline-offset: -2px; }
 #cRL { height: 330px; }
 #cMag, #cPh { height: 165px; }
 #cNyq, #cNic, #cStep { height: 230px; }
@@ -305,6 +305,7 @@ dialog::backdrop { background: #13201965; }
   .info th { width: 40%; }
   .info td { font-size: 14px; }
   .toast { bottom: 16px; font-size: 14px; }
+  .gain-docked { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
   .gain-docked body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
   .gain-docked .toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
   .mobile-gain-dock {

@@ -39,6 +39,21 @@ const Poly = {
     return r;
   },
 
+  // 返回多项式值与各项绝对值之和的比值。大 x 时改用倒数，避免溢出。
+  relativeValue(p, x) {
+    const degree = p.length - 1;
+    const descending = x <= 1;
+    const ratio = descending ? x : 1 / x;
+    const start = descending ? degree : 0;
+    const increment = descending ? -1 : 1;
+    let value = p[start], scale = Math.abs(value);
+    for (let i = start + increment; i >= 0 && i <= degree; i += increment) {
+      value = value * ratio + p[i];
+      scale = scale * ratio + Math.abs(p[i]);
+    }
+    return scale === 0 ? 0 : value / scale;
+  },
+
   // 由导数的正实根分隔单调区间。对数坐标二分覆盖不同数量级的根。
   positiveRoots(input) {
     const first = input.findIndex(coefficient => coefficient !== 0);
@@ -64,23 +79,9 @@ const Poly = {
     const high = Math.exp(Math.min(Math.log(Number.MAX_VALUE), logUpper(p)));
     if (!(low <= high)) return [];
 
-    // 在 x>1 时求 p(x)/xⁿ，避免霍纳法中间结果溢出。
-    function relativeValue(x) {
-      const descending = x <= 1;
-      const ratio = descending ? x : 1 / x;
-      const start = descending ? degree : 0;
-      const increment = descending ? -1 : 1;
-      let value = p[start], scale = Math.abs(value);
-      for (let i = start + increment; i >= 0 && i <= degree; i += increment) {
-        value = value * ratio + p[i];
-        scale = scale * ratio + Math.abs(p[i]);
-      }
-      return value / scale;
-    }
-
     const critical = Poly.positiveRoots(Poly.deriv(p)).filter(x => x > low && x < high);
     const points = [low, ...critical, high];
-    const values = points.map(relativeValue);
+    const values = points.map(x => Poly.relativeValue(p, x));
     const roots = [];
     const tolerance = 8 * degree * Number.EPSILON;
     for (let i = 0; i < points.length; i++) {
@@ -93,7 +94,7 @@ const Poly = {
       const sign = Math.sign(values[i - 1]);
       for (let iteration = 0; iteration < 56; iteration++) {
         const middle = (left + right) / 2;
-        const middleValue = relativeValue(Math.exp(middle));
+        const middleValue = Poly.relativeValue(p, Math.exp(middle));
         if (middleValue === 0) { left = right = middle; break; }
         if (Math.sign(middleValue) === sign) left = middle;
         else right = middle;

@@ -2,7 +2,7 @@
 
 **[打开自控绘图台](https://larryhul.github.io/control-plots/)**
 
-[![数值回归](https://github.com/Larryhul/control-plots/actions/workflows/checks.yml/badge.svg)](https://github.com/Larryhul/control-plots/actions/workflows/checks.yml)
+[![项目检查](https://github.com/Larryhul/control-plots/actions/workflows/checks.yml/badge.svg)](https://github.com/Larryhul/control-plots/actions/workflows/checks.yml)
 [![MIT License](https://img.shields.io/github/license/Larryhul/control-plots)](LICENSE)
 
 输入开环传递函数后拖动 K 滑块，根轨迹、频域图与闭环阶跃响应会同步更新。网页无需注册，传递函数和曲线在浏览器中计算。
@@ -21,19 +21,20 @@
 | [读 Bode 裕度](https://larryhul.github.io/control-plots/#n=1&d=s%28s%2B1%29%28s%2B2%29&k=1&view=bode&w=1.4142135623730951) | 相角达到 −180° 时，幅值为 −15.56 dB，对应幅值裕度 15.56 dB。 |
 | [比较阶跃超调](https://larryhul.github.io/control-plots/#n=1&d=s%28s%2B2%29&k=1&t=12&view=step) | 将 K = 1 加入对比，再改为 K = 4，观察响应出现超调。 |
 
-遇到显示或计算问题时，可通过 [GitHub Issues](https://github.com/Larryhul/control-plots/issues) 反馈。附上分子、分母、K 和预期结果，方便复现。
+教师可参考 [课堂使用指南](docs/classroom.md) 组织投影演示和学生练习。遇到显示或计算问题时，可通过 [GitHub Issues](https://github.com/Larryhul/control-plots/issues) 反馈。附上分享链接和预期结果，方便复现。
 
 ## 操作与对比
 
 - 右侧直接调节增益和传递函数。延迟、仿真时长与负增益在“仿真设置”中调整。K 支持 0，正增益滑块采用对数刻度。
 - 桌面参数面板随页面滚动保持可用，默认同页显示全部曲线。点击图表右上角可放大，再次点击返回总览。
-- 手机滚动到曲线时，底部会显示 K 输入框和滑块。传递函数面板按需展开。
+- 手机上可直接打开课堂练习。滚动到曲线时，底部会显示 K 输入框和滑块，传递函数面板按需展开。
 - 悬停或点击频域图，Bode、Nyquist、Nichols 同步标出对应频率，也可在 ω 输入框中直接指定。
 - 点击“加入对比”保存当前系统，再调整参数可查看实线与虚线的差异。
 - 分享链接保存增益、正负号、延迟、仿真时长、图表视图、联动频率及对比模型，兼容原有链接。
 - “导出”菜单支持 PNG 图片和带 UTF-8 BOM 的 CSV，按当前视图导出，总览包含全部图表与完整计算结果。
 - 根轨迹和 Bode 图下方可展开计算过程，查看实轴区段、渐近线、稳定边界和各段斜率。
-- 完整数值位于“详细计算结果”，网站菜单提供深浅色切换和使用帮助。菜单支持键盘操作与 Escape 关闭。
+- 按 Tab 进入图表。方向键读点，Shift 加方向键平移，+ / − 缩放，Home 复位。根轨迹按 Enter 选择增益。
+- 完整数值位于“详细计算结果”，网站菜单提供深浅色切换和使用帮助。
 
 ## 输入格式
 
@@ -46,6 +47,8 @@
 
 开环传递函数为 `K · N(s)/D(s) · e^(−τs)`，闭环按单位负反馈计算（特征方程 `D + K·N = 0`）。
 延迟 τ 计入 Bode、Nyquist、Nichols 三种频域图。根轨迹、闭环极点和稳定 K 区间采用 τ = 0 模型，界面各处均标注该条件。阶跃响应在 τ = 0 时提供。
+
+无延迟系统按闭环极点判定稳定性。极点全部位于左半平面为渐近稳定。虚轴极点均为单根且其余极点在左半平面时标为临界。右半平面极点或虚轴重根均判为不稳定。
 
 分子与分母同阶时，闭环最高次项抵消的正增益单独作为稳定区间边界，并标为奇异增益。幅值交越由 `|K·N(jω)|² = |D(jω)|²` 求出，绘图采样用于呈现曲线。负实轴交点包括直流边界。含延迟模型的相角交越采用数值搜索。开环存在虚轴极点时，完整的奈氏路径还需要绕开这些极点。
 
@@ -61,7 +64,7 @@ python -m http.server 8765
 
 本站使用 HTML、CSS 和原生 JavaScript，部署时可直接在 GitHub Pages 选择 `main` 分支的根目录。
 
-使用 Node.js 24 运行 `node --test` 即可核对教材和边界算例。推送与 Pull Request 都会触发数值回归。历次改动见 [更新记录](CHANGELOG.md)。
+使用 Node.js 24 运行 `npm test` 核对教材和边界算例。推送与 Pull Request 会运行数值和浏览器检查。浏览器矩阵覆盖桌面 Chromium、Firefox、WebKit 及两种手机模拟配置。测试和发版步骤见 [贡献指南](CONTRIBUTING.md)，历次改动见 [更新记录](CHANGELOG.md)。
 
 项目代码和文档采用 [MIT 许可证](LICENSE)。随附的 DM Sans 字体采用 [SIL Open Font License 1.1](assets/fonts/OFL.txt)。
 
@@ -74,4 +77,6 @@ js/math.js      复数、多项式、求根（Aberth 法）、表达式解析
 js/control.js   根轨迹、频率特性、裕度、阶跃响应等算法
 js/plot.js      Canvas 绘图组件（缩放 / 平移 / 悬停）
 js/app.js       界面逻辑
+test/           教材和数值边界算例
+e2e/            浏览器、触屏与键盘回归
 ```

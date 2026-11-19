@@ -1,0 +1,24 @@
+name: 课堂使用反馈
+description: 记录练习、手机或投影环境中的实际使用情况
+body:
+  - type: input
+    id: exercise
+    attributes:
+      label: 练习或分享链接
+      description: 填写练习名称，或粘贴网页上复制的链接。
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 设备和浏览器
+      placeholder: 例如 iPhone Safari、安卓 Chrome，或投影分辨率与浏览器
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 完成情况与遇到的问题
+      description: 记录做到哪一步、看到的结果，以及哪里影响了理解或操作。
+    validations:
+      required: true

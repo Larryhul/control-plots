@@ -4,15 +4,20 @@
 const Ctl = (() => {
   const PI = Math.PI;
 
-  function frequencyPolynomial(coefficients) {
-    const scale = Math.max(...coefficients.map(Math.abs));
-    const unit = coefficients.map(coefficient => coefficient / scale);
+  function imaginaryAxisTerms(coefficients) {
     const even = [], odd = [];
-    unit.forEach((coefficient, power) => {
+    coefficients.forEach((coefficient, power) => {
       const terms = power % 2 === 0 ? even : odd;
       terms.push(terms.length % 2 === 0 ? coefficient : -coefficient);
     });
     if (!odd.length) odd.push(0);
+    return [even, odd];
+  }
+
+  function frequencyPolynomial(coefficients) {
+    const scale = Math.max(...coefficients.map(Math.abs));
+    const unit = coefficients.map(coefficient => coefficient / scale);
+    const [even, odd] = imaginaryAxisTerms(unit);
     // P(jω) = E(ω²) + jω O(ω²).
     const squared = Poly.add(Poly.mul(even, even), [0, ...Poly.mul(odd, odd)]);
     return { scale, logScale: Math.log(scale), unit, even, odd, squared };
@@ -271,17 +276,56 @@ const Ctl = (() => {
     return K > 0 && Number.isFinite(K) ? [K] : [];
   }
 
+  const sideOf = pole => Math.abs(pole[0]) <= 1e-9 * Cx.abs(pole) ? 0 : Math.sign(pole[0]);
+
+  function axisRootOrder(terms, x) {
+    let order = 0;
+    while (terms.length > 1 && Math.abs(Poly.relativeValue(terms, x)) <= 8 * Number.EPSILON * terms.length) {
+      order++;
+      terms = Poly.deriv(terms);
+    }
+    return order;
+  }
+
+  function restoreRepeatedAxisPairs(polynomial, poles) {
+    if (polynomial.length < 5) return false;
+    const scale = Math.max(...polynomial.map(Math.abs));
+    const parts = imaginaryAxisTerms(polynomial.map(coefficient => coefficient / scale))
+      .map(Poly.trim).filter(part => !Poly.isZero(part)).sort((a, b) => a.length - b.length);
+    // 对 ω > 0，虚轴重根要求 P(jω) 的偶、奇部在 ω² 处同时为重根。
+    const candidates = Poly.positiveRoots(Poly.deriv(parts[0]));
+    const assigned = new Set();
+    for (const x of candidates) {
+      const order = Math.min(...parts.map(part => axisRootOrder(part, x)));
+      if (order < 2) continue;
+      for (const imaginary of [Math.sqrt(x), -Math.sqrt(x)]) {
+        const closest = poles.map(([re, im], index) => ({ index, distance: Math.hypot(re, im - imaginary) }))
+          .filter(({ index }) => !assigned.has(index)).sort((a, b) => a.distance - b.distance).slice(0, order);
+        for (const { index } of closest) {
+          poles[index] = [0, imaginary];
+          assigned.add(index);
+        }
+      }
+    }
+    return assigned.size > 0;
+  }
+
   function closedStatus(sys, sg, K) {
     const coefficients = charPoly(sys, sg, K);
-    if (!coefficients.every(Number.isFinite)) return { kind: 'unknown', poles: [], rightCount: 0 };
+    if (!coefficients.every(Number.isFinite)) return { kind: 'unknown', poles: [], rightCount: 0, axisCount: 0, repeatedAxis: false };
     const polynomial = Poly.trim(coefficients);
-    const poles = Poly.cleanRoots(Poly.roots(polynomial));
-    if (Poly.isZero(polynomial) || (K > 0 && polynomial.length < sys.num.length)) return { kind: 'singular', poles, rightCount: 0 };
-    if (!poles.every(p => p.every(Number.isFinite))) return { kind: 'unknown', poles: [], rightCount: 0 };
-    const tolerance = pole => 1e-9 * Cx.abs(pole);
-    const rightCount = poles.filter(p => p[0] > tolerance(p)).length;
-    const marginal = poles.some(p => Math.abs(p[0]) <= tolerance(p));
-    return { kind: rightCount ? 'unstable' : marginal ? 'marginal' : 'stable', poles, rightCount };
+    const roots = Poly.roots(polynomial);
+    if (Poly.isZero(polynomial) || (K > 0 && polynomial.length < sys.num.length)) {
+      return { kind: 'singular', poles: Poly.cleanRoots(roots), rightCount: 0, axisCount: 0, repeatedAxis: false };
+    }
+    if (!roots.every(p => p.every(Number.isFinite))) return { kind: 'unknown', poles: [], rightCount: 0, axisCount: 0, repeatedAxis: false };
+    const repeatedPair = restoreRepeatedAxisPairs(polynomial, roots);
+    const repeatedOrigin = polynomial.length > 2 && polynomial[0] === 0 && polynomial[1] === 0;
+    const repeatedAxis = repeatedPair || repeatedOrigin;
+    // 分开整理左右半平面的根，避免把虚轴两侧的相近极点平均到一起。
+    const [right, axis, left] = [1, 0, -1].map(side => Poly.cleanRoots(roots.filter(pole => sideOf(pole) === side)));
+    const kind = right.length || repeatedAxis ? 'unstable' : axis.length ? 'marginal' : 'stable';
+    return { kind, poles: [...right, ...axis, ...left], rightCount: right.length, axisCount: axis.length, repeatedAxis };
   }
 
   function match(prev, next) {
@@ -393,7 +437,7 @@ const Ctl = (() => {
     return res;
   }
 
-  const closedPoles = (sys, sg, K) => Poly.cleanRoots(Poly.roots(charPoly(sys, sg, K)));
+  const closedPoles = (sys, sg, K) => closedStatus(sys, sg, K).poles;
 
   /* ---------- 单位阶跃响应（闭环 T = KN/(D+KN)，矩阵指数精确离散化） ---------- */
   function matMul(A, B) {
@@ -429,23 +473,23 @@ const Ctl = (() => {
     return E;
   }
 
-  function step(sys, sg, K, Tuser) {
+  function step(sys, sg, K, Tuser, analysis = closedStatus(sys, sg, K)) {
     const numerator = Poly.scale(sys.num, sg * K), denominator = charPoly(sys, sg, K);
     if (![...numerator, ...denominator].every(Number.isFinite)) return { err: '当前系数或增益超出仿真数值范围' };
     const num = Poly.trim(numerator), den = Poly.trim(denominator);
     if (Poly.isZero(den)) return { err: '闭环特征多项式恒为 0' };
     if (num.length > den.length) return { err: '闭环传递函数分子阶次高于分母，无法仿真' };
+    if (analysis.kind === 'unknown') return { err: '当前数值尺度下无法可靠求取闭环极点' };
     const n = den.length - 1, lead = den[n];
     const a = den.map(c => c / lead), b = [];
     for (let i = 0; i <= n; i++) b.push((num[i] || 0) / lead);
-    const poles = Poly.roots(den);
+    const poles = analysis.poles;
     let scp = 0;
     for (const p of poles) scp = Math.max(scp, Cx.abs(p));
-    const tolerance = pole => 1e-9 * Cx.abs(pole);
-    const st = poles.filter(p => p[0] < -tolerance(p));
-    const un = poles.filter(p => p[0] > tolerance(p));
-    const mg = poles.filter(p => Math.abs(p[0]) <= tolerance(p));
-    const stable = n > 0 ? (un.length === 0 && mg.length === 0) : true;
+    const st = poles.filter(p => sideOf(p) < 0);
+    const un = poles.filter(p => sideOf(p) > 0);
+    const mg = poles.filter(p => sideOf(p) === 0);
+    const stable = analysis.kind === 'stable';
     let T = Tuser;
     if (!(T > 0)) {
       if (un.length) T = 6 / Math.max(...un.map(p => p[0]));

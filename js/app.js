@@ -63,13 +63,20 @@
     { number: $('mobileKNum'), slider: $('mobileKSlider'), error: $('mobileKErr') },
   ];
 
+  function createPlot(canvas, readout, options) {
+    return new Plot($(canvas), {
+      onKeyboard(message) { $('plotAnnouncement').textContent = message || $(readout).textContent || '当前视图无可读数据'; },
+      ...options,
+    });
+  }
+
   const P = {
-    rl: new Plot($('cRL'), { equal: true, xlabel: '实轴 σ', ylabel: '虚轴 jω', onHover: hoverRL, onClick: h => { hoverRL(h); if (rlHoverK !== null) setK(rlHoverK); } }),
-    mag: new Plot($('cMag'), { xlog: true, zoom: 'x', ylabel: 'L(ω) / dB', yMode: 'db', onHover: hoverBode, onClick: hoverBode, onView: linkBode }),
-    ph: new Plot($('cPh'), { xlog: true, zoom: 'x', xlabel: 'ω / (rad/s)', ylabel: 'φ(ω) / °', yMode: 'deg', onHover: hoverBode, onClick: hoverBode, onView: linkBode }),
-    nyq: new Plot($('cNyq'), { equal: true, xlabel: 'Re', ylabel: 'Im', onHover: hoverNyq, onClick: hoverNyq }),
-    nic: new Plot($('cNic'), { xlabel: '相角 / °', ylabel: '幅值 / dB', xMode: 'deg', yMode: 'db', onHover: hoverNic, onClick: hoverNic }),
-    step: new Plot($('cStep'), { xlabel: 't / s', ylabel: 'c(t)', onHover: hoverStep, onClick: hoverStep }),
+    rl: createPlot('cRL', 'rRL', { equal: true, xlabel: '实轴 σ', ylabel: '虚轴 jω', onHover: hoverRL, onClick: h => { hoverRL(h); if (rlHoverK !== null) setK(rlHoverK); } }),
+    mag: createPlot('cMag', 'rBode', { xlog: true, zoom: 'x', ylabel: 'L(ω) / dB', yMode: 'db', onHover: hoverBode, onClick: hoverBode, onView: linkBode }),
+    ph: createPlot('cPh', 'rBode', { xlog: true, zoom: 'x', xlabel: 'ω / (rad/s)', ylabel: 'φ(ω) / °', yMode: 'deg', onHover: hoverBode, onClick: hoverBode, onView: linkBode }),
+    nyq: createPlot('cNyq', 'rNyq', { equal: true, xlabel: 'Re', ylabel: 'Im', onHover: hoverNyq, onClick: hoverNyq }),
+    nic: createPlot('cNic', 'rNic', { xlabel: '相角 / °', ylabel: '幅值 / dB', xMode: 'deg', yMode: 'db', onHover: hoverNic, onClick: hoverNic }),
+    step: createPlot('cStep', 'rStep', { xlabel: 't / s', ylabel: 'c(t)', onHover: hoverStep, onClick: hoverStep }),
   };
   P.mag.m.b = 26;
   for (const plot of Object.values(P)) plot.o.drawLegend = false;
@@ -218,7 +225,7 @@
     }
     const descriptions = {
       stable: ['good', '稳定', '闭环极点全部在左半平面'],
-      unstable: ['bad', '不稳定', `${closedAnalysis.rightCount} 个闭环极点在右半平面`],
+      unstable: ['bad', '不稳定', unstableReason()],
       marginal: ['warn', '临界', '闭环极点位于虚轴'],
       singular: ['bad', '奇异增益', '闭环特征方程退化，常规闭环响应未定义'],
       unknown: ['warn', '待核查', '当前数值尺度下无法可靠判定'],
@@ -240,6 +247,13 @@
     $('kpis').innerHTML = t.join('');
   }
 
+  function unstableReason() {
+    const reasons = [];
+    if (closedAnalysis.rightCount) reasons.push(`${closedAnalysis.rightCount} 个闭环极点在右半平面`);
+    if (closedAnalysis.repeatedAxis) reasons.push('闭环含虚轴重根');
+    return reasons.join('，');
+  }
+
   /* ================= 随 K 更新 ================= */
   function updateK() {
     if (!sys) return;
@@ -248,7 +262,7 @@
     cl = closedAnalysis.poles;
     S = Ctl.freqSamples(sys, sg, K);
     mar = Ctl.margins(sys, sg, S, K);
-    stp = sys.tau > 0 ? { err: '阶跃仿真适用于 τ=0' } : Ctl.step(sys, sg, K, state.duration);
+    stp = sys.tau > 0 ? { err: '阶跃仿真适用于 τ=0' } : Ctl.step(sys, sg, K, state.duration, closedAnalysis);
     fitBodeRange();
     drawRL(); bodeRefresh(); drawNyq(); drawNic(); drawStep(); renderInfo(); renderKPI();
     renderLegends();
@@ -280,7 +294,7 @@
       const r = P.rl.nearest(b.x, b.y, h.px, h.py);
       if (!best || r.d < best.d) best = { i: r.i, d: r.d, b };
     }
-    if (best && best.i >= 0 && best.d < 30) {
+    if (best && best.i >= 0 && (h.keyboard || best.d < 30)) {
       const x = best.b.x[best.i], y = best.b.y[best.i], K = best.b.k[best.i], wn = Math.hypot(x, y);
       P.rl.cursor = { x, y }; rlHoverK = K;
       ro('rRL', `<b>K = ${fmt(K)}</b>　s = ${fmt(x)} ${y < 0 ? '−' : '+'} j${fmt(Math.abs(y))}<span class="probe-more">　ζ = ${wn ? fmt(-x / wn) : '—'}　ω<sub>n</sub> = ${fmt(wn)}</span>`);
@@ -488,6 +502,7 @@
     if (comparison) P.nyq.legend.push({ label: '对比', color: '--c3', dash: [6, 4] });
     const nyqNotes = [];
     if (sys.imagPoles) nyqNotes.push('开环含虚轴极点。图中显示频率响应，完整奈氏路径还需绕开这些极点。');
+    if (sys.tau === 0 && closedAnalysis.axisCount) nyqNotes.push('闭环含虚轴极点，判读奈氏包围数时须处理临界点。');
     if (S.brk.some(Boolean) || !S.complete) nyqNotes.push('高频密集绕转处采用断线显示。');
     $('nyqNote').hidden = nyqNotes.length === 0;
     $('nyqNote').textContent = nyqNotes.join(' ');
@@ -497,7 +512,7 @@
     if (!h || !nyq) return;
     const a = P.nyq.nearest(nyq.re, nyq.im, h.px, h.py), b = P.nyq.nearest(nyq.re, nyq.imn, h.px, h.py);
     const neg = b.d < a.d, r = neg ? b : a;
-    if (r.i >= 0 && r.d < 30) {
+    if (r.i >= 0 && (h.keyboard || r.d < 30)) {
       showFrequency(S.w[r.i]);
       if (neg) {
         P.nyq.cursor = { x: nyq.re[r.i], y: nyq.imn[r.i] };
@@ -565,7 +580,7 @@
   function hoverNic(h) {
     if (!h || !nic || state.K === 0) return;
     const r = P.nic.nearest(nic.x, nic.y, h.px, h.py);
-    if (r.i >= 0 && r.d < 30) {
+    if (r.i >= 0 && (h.keyboard || r.d < 30)) {
       showFrequency(S.w[r.i]);
     }
   }
@@ -603,7 +618,9 @@
     if (comparison && !comparison.stp.err) includeView(p, comparison.stp.t.map((time, i) => [time, comparison.stp.y[i]]));
     p.draw();
     if (!stp.stable) {
-      $('mStep').textContent = '闭环含非渐近稳定极点，稳态指标未定义。';
+      $('mStep').textContent = closedAnalysis.repeatedAxis
+        ? '闭环含虚轴重根，系统不稳定。稳态指标未定义。'
+        : '闭环含非渐近稳定极点，稳态指标未定义。';
       $('mStep').hidden = false;
     }
   }
@@ -651,7 +668,7 @@
     const Z = closedAnalysis.rightCount, Pn = sys.poles.filter(p => p[0] > 0).length;
     if (sys.tau > 0) row('闭环稳定性', '<span class="dim">含延迟环节：上面的根轨迹与闭环极点按 τ=0 计算，实际稳定性请依据裕度与奈氏曲线判断</span>');
     else {
-      const statusText = { stable: '稳定', unstable: `不稳定（${Z} 个右半平面极点）`, marginal: '临界稳定', singular: '奇异增益，闭环特征方程退化', unknown: '当前数值尺度下待核查' };
+      const statusText = { stable: '稳定', unstable: `不稳定（${unstableReason()}）`, marginal: '临界稳定', singular: '奇异增益，闭环特征方程退化', unknown: '当前数值尺度下待核查' };
       row('闭环稳定性', statusText[closedAnalysis.kind]);
     }
     const g = mar.bestG, p = mar.bestP;
@@ -659,7 +676,11 @@
     row('相角裕度 γ', g ? `<span class="${g.pm > 0 ? 'good' : 'bad'}">${fmt(g.pm)}°</span>` : state.K === 0 ? 'K=0，未定义' : '—');
     row('穿越频率 ω<sub>x</sub>', p ? p.atInfinity ? 'ω → ∞' : p.w === 0 ? '0 rad/s（直流）' : fmt(p.w) + ' rad/s' : '未找到负实轴交点');
     row('幅值裕度 h', p ? `${fmt(p.gm)} dB<span class="dim">（${fmt(Math.pow(10, p.gm / 20))} 倍）</span>` : state.K === 0 ? 'K=0，未定义' : '∞');
-    if (sys.tau === 0 && !['singular', 'unknown'].includes(closedAnalysis.kind)) row('奈氏关系', `P = ${Pn}，Z = ${Z}，R = P − Z = ${fmt(Pn - Z)}<span class="dim">（由极点数推得的逆时针包围数）</span>`);
+    if (sys.tau === 0 && !['singular', 'unknown'].includes(closedAnalysis.kind)) {
+      const winding = closedAnalysis.axisCount ? '（闭环含虚轴极点，临界点需单独处理）'
+        : `，R = P − Z = ${fmt(Pn - Z)}<span class="dim">（由极点数推得的逆时针包围数）</span>`;
+      row('奈氏关系', `P = ${Pn}，Z = ${Z}${winding}`);
+    }
     sec('阶跃响应');
     if (!stp.err && stp.stable) {
       row('稳态值', fmt(stp.yss));
@@ -717,6 +738,7 @@
     const model = { n: String(input.n), d: String(input.d), k: Number(input.k), tau: Number(input.tau || 0), sg: input.sg === -1 ? -1 : 1, t: Number(input.t || 0) };
     if (!Number.isFinite(model.k) || model.k < 0 || !Number.isFinite(model.t) || model.t < 0) throw new Error('对比模型的增益或仿真时长无效');
     const system = Ctl.makeSystem(model.n, model.d, model.tau);
+    const analysis = Ctl.closedStatus(system, model.sg, model.k);
     const samples = Ctl.freqSamples(system, model.sg, model.k);
     const re = [], im = [], imn = [];
     for (let i = 0; i < samples.w.length; i++) {
@@ -729,8 +751,8 @@
       model, sys: system, S: samples,
       RL: sameSystem(model, state.model) ? RL : Ctl.rootLocus(system, model.sg),
       mar: Ctl.margins(system, model.sg, samples, model.k),
-      cl: Ctl.closedPoles(system, model.sg, model.k),
-      stp: model.tau > 0 ? { err: '含延迟模型' } : Ctl.step(system, model.sg, model.k, model.t),
+      cl: analysis.poles,
+      stp: model.tau > 0 ? { err: '含延迟模型' } : Ctl.step(system, model.sg, model.k, model.t, analysis),
       polar: { re, im, imn },
     };
   }
@@ -1113,8 +1135,10 @@
   $('exerciseOpen').addEventListener('click', event => openHelp(event.currentTarget));
   $('helpClose').addEventListener('click', () => $('helpDialog').close());
   $('helpDialog').addEventListener('click', event => {
-    if (event.target.closest('[data-exercise]') && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
-      $('helpDialog').close('exercise');
+    const exercise = event.target.closest('[data-exercise]');
+    if (exercise && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+      const query = new URLSearchParams(new URL(exercise.href).hash.slice(1));
+      $('helpDialog').close(query.get('view') || 'all');
       return;
     }
     if (event.target !== $('helpDialog')) return;
@@ -1122,9 +1146,9 @@
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) $('helpDialog').close();
   });
   $('helpDialog').addEventListener('close', () => {
-    const focusTarget = $('helpDialog').returnValue === 'exercise'
-      ? $('plotTabs').querySelector('[aria-pressed="true"]') : helpReturnFocus;
-    focusTarget?.focus({ preventScroll: true });
+    const view = $('helpDialog').returnValue;
+    const chartTab = [...$('plotTabs').querySelectorAll('button[data-view]')].find(button => button.dataset.view === view);
+    (chartTab || helpReturnFocus)?.focus({ preventScroll: true });
   });
   const mobileLayout = window.matchMedia('(max-width: 760px)');
   function updateMobileGain() {

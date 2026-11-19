@@ -14,7 +14,7 @@
 <script>
   try { const theme = localStorage.getItem('theme'); if (theme) document.documentElement.dataset.theme = theme; } catch (error) {}
 </script>
-<link rel="stylesheet" href="style.css?v=0.2.0">
+<link rel="stylesheet" href="style.css?v=0.3.0">
 </head>
 <body>
 <header class="site-header">
@@ -35,7 +35,10 @@
 <main class="workbench">
   <aside class="controls" aria-label="调节系统参数">
     <section class="gain-control">
-      <div class="control-heading"><h2>增益</h2><span class="parameter-symbol">K</span></div>
+      <div class="control-heading">
+        <h2>增益 <i class="parameter-symbol">K</i></h2>
+        <button id="exerciseOpen" class="text-button" type="button">课堂练习<span aria-hidden="true">↗</span></button>
+      </div>
       <div class="gain-number">
         <button id="gainDecrease" type="button" class="step-button" aria-label="增益减小百分之十">−</button>
         <input id="kNum" type="number" min="0" step="any" value="1" aria-label="增益 K">
@@ -54,10 +57,7 @@
     <details id="controlOptions" class="control-options" open>
       <summary class="mobile-control-toggle">传递函数与示例<span aria-hidden="true">＋</span></summary>
       <div class="model-controls">
-        <div class="preset-heading">
-          <label class="preset-label" for="ex">系统</label>
-          <button id="exerciseOpen" class="text-button" type="button">课堂练习<span aria-hidden="true">↗</span></button>
-        </div>
+        <label class="preset-label" for="ex">系统</label>
         <select id="ex" aria-label="选择系统示例"><option value="">自定义系统</option></select>
         <div class="inputs">
           <label class="field"><span>分子 <i>N(s)</i></span><input id="num" type="text" spellcheck="false" autocomplete="off" aria-describedby="inputHelp"></label>
@@ -117,10 +117,12 @@
     </div>
     <p id="comparisonNote" class="comparison-note" hidden></p>
 
+    <p id="plotKeyboardHelp" class="visually-hidden">方向键读点，Shift 加方向键平移，加号或减号缩放，Home 复位。根轨迹按 Enter 选定增益。</p>
+    <p id="plotAnnouncement" class="visually-hidden" role="status"></p>
     <section id="plots" class="figs" data-view="all">
       <figure class="fig primary-figure root-figure" data-plot="rl">
         <figcaption><h2>根轨迹</h2><button class="expand-plot" data-focus="rl" type="button" aria-label="放大根轨迹">↗</button></figcaption>
-        <canvas id="cRL" aria-label="根轨迹图，可点击轨迹选择增益"></canvas>
+        <canvas id="cRL" tabindex="0" aria-label="根轨迹图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rRL" class="readout"></div>
         <div class="plot-legend" data-legend="rl"></div>
         <p id="rlModel" class="model-note" hidden></p>
@@ -128,28 +130,28 @@
       </figure>
       <figure class="fig primary-figure bode-figure" data-plot="bode">
         <figcaption><h2>Bode 图</h2><button class="expand-plot" data-focus="bode" type="button" aria-label="放大 Bode 图">↗</button></figcaption>
-        <canvas id="cMag" aria-label="Bode 幅频图"></canvas>
-        <canvas id="cPh" aria-label="Bode 相频图"></canvas>
+        <canvas id="cMag" tabindex="0" aria-label="Bode 幅频图" aria-describedby="plotKeyboardHelp"></canvas>
+        <canvas id="cPh" tabindex="0" aria-label="Bode 相频图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rBode" class="readout"></div>
         <div class="plot-legend" data-legend="mag"></div>
         <details class="calculation"><summary>计算过程</summary><div id="bodeNotes"></div></details>
       </figure>
       <figure class="fig secondary-figure" data-plot="nyq">
         <figcaption><h2>Nyquist</h2><button class="expand-plot" data-focus="nyq" type="button" aria-label="放大 Nyquist 图">↗</button></figcaption>
-        <canvas id="cNyq" aria-label="Nyquist 图"></canvas>
+        <canvas id="cNyq" tabindex="0" aria-label="Nyquist 图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rNyq" class="readout"></div>
         <div class="plot-legend" data-legend="nyq"></div>
         <p id="nyqNote" class="model-note" hidden></p>
       </figure>
       <figure class="fig secondary-figure" data-plot="nic">
         <figcaption><h2>Nichols</h2><button class="expand-plot" data-focus="nic" type="button" aria-label="放大 Nichols 图">↗</button></figcaption>
-        <canvas id="cNic" aria-label="Nichols 图"></canvas>
+        <canvas id="cNic" tabindex="0" aria-label="Nichols 图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rNic" class="readout"></div>
         <div class="plot-legend" data-legend="nic"></div>
       </figure>
       <figure class="fig secondary-figure" data-plot="step">
         <figcaption><h2>阶跃响应</h2><button class="expand-plot" data-focus="step" type="button" aria-label="放大阶跃响应">↗</button></figcaption>
-        <canvas id="cStep" aria-label="闭环单位阶跃响应"></canvas>
+        <canvas id="cStep" tabindex="0" aria-label="闭环单位阶跃响应" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rStep" class="readout"></div>
         <div class="plot-legend" data-legend="step"></div>
         <p id="mStep" class="model-note" hidden></p>
@@ -184,14 +186,16 @@
       <li>分子和分母支持表达式 <code>s(s+1)(s+2)</code> 与降幂系数 <code>1 3 2 0</code>。</li>
       <li>点击根轨迹选择增益。悬停或点击频域图，各图同步标出对应频率。</li>
       <li>滚轮缩放，拖动平移，双击复位。分享链接保存当前系统与对比模型。</li>
+      <li>按 Tab 进入图表。方向键读点，Shift 加方向键平移，+ / − 缩放，Home 复位。根轨迹按 Enter 选定增益。</li>
     </ul>
     <p>闭环采用单位负反馈。纯延迟计入频域分析，根轨迹与闭环极点使用 τ=0 模型，阶跃仿真适用于 τ=0。</p>
+    <a href="https://github.com/Larryhul/control-plots/blob/main/docs/classroom.md">课堂使用指南</a>
     <a href="https://github.com/Larryhul/control-plots/issues">反馈问题</a>
   </details>
 </dialog>
-<script src="js/math.js?v=0.2.0"></script>
-<script src="js/control.js?v=0.2.0"></script>
-<script src="js/plot.js?v=0.2.0"></script>
-<script src="js/app.js?v=0.2.0"></script>
+<script src="js/math.js?v=0.3.0"></script>
+<script src="js/control.js?v=0.3.0"></script>
+<script src="js/plot.js?v=0.3.0"></script>
+<script src="js/app.js?v=0.3.0"></script>
 </body>
 </html>
