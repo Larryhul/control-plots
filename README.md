@@ -2,6 +2,9 @@
 
 **[打开自控绘图台](https://larryhul.github.io/control-plots/)**
 
+[![数值回归](https://github.com/Larryhul/control-plots/actions/workflows/checks.yml/badge.svg)](https://github.com/Larryhul/control-plots/actions/workflows/checks.yml)
+[![MIT License](https://img.shields.io/github/license/Larryhul/control-plots)](LICENSE)
+
 输入开环传递函数后拖动 K 滑块，根轨迹、频域图与闭环阶跃响应会同步更新。网页无需注册，传递函数和曲线在浏览器中计算。
 
 - **根轨迹**（180° / 0°），含渐近线、分离点、与虚轴交点、稳定的 K 范围
@@ -24,7 +27,7 @@
 
 - 右侧直接调节增益和传递函数。延迟、仿真时长与负增益在“仿真设置”中调整。K 支持 0，正增益滑块采用对数刻度。
 - 桌面参数面板随页面滚动保持可用，默认同页显示全部曲线。点击图表右上角可放大，再次点击返回总览。
-- 手机保留增益操作，传递函数面板按需展开，性能指标可横向滚动查看。主要输入与导航使用清晰的正常字号。
+- 手机滚动到曲线时，底部会显示 K 输入框和滑块。传递函数面板按需展开。
 - 悬停或点击频域图，Bode、Nyquist、Nichols 同步标出对应频率，也可在 ω 输入框中直接指定。
 - 点击“加入对比”保存当前系统，再调整参数可查看实线与虚线的差异。
 - 分享链接保存增益、正负号、延迟、仿真时长、图表视图、联动频率及对比模型，兼容原有链接。
@@ -44,7 +47,7 @@
 开环传递函数为 `K · N(s)/D(s) · e^(−τs)`，闭环按单位负反馈计算（特征方程 `D + K·N = 0`）。
 延迟 τ 计入 Bode、Nyquist、Nichols 三种频域图。根轨迹、闭环极点和稳定 K 区间采用 τ = 0 模型，界面各处均标注该条件。阶跃响应在 τ = 0 时提供。
 
-分子与分母同阶时，闭环最高次项抵消的正增益单独作为稳定区间边界，并标为奇异增益。频率搜索范围随 K 调整，含延迟曲线在高频密集绕转处采用断线显示，裕度另行搜索连续相角交越点。稳定判定和频率结果来自数值计算。
+分子与分母同阶时，闭环最高次项抵消的正增益单独作为稳定区间边界，并标为奇异增益。幅值交越由 `|K·N(jω)|² = |D(jω)|²` 求出，绘图采样用于呈现曲线。负实轴交点包括直流边界。含延迟模型的相角交越采用数值搜索。开环存在虚轴极点时，完整的奈氏路径还需要绕开这些极点。
 
 ## 本地预览
 
@@ -56,7 +59,11 @@ python -m http.server 8765
 
 ## 发布与维护
 
-本站使用 HTML、CSS 和原生 JavaScript，部署时可直接在 GitHub Pages 选择 `main` 分支的根目录。DM Sans 字体随项目提供，授权文件为 [OFL.txt](assets/fonts/OFL.txt)。
+本站使用 HTML、CSS 和原生 JavaScript，部署时可直接在 GitHub Pages 选择 `main` 分支的根目录。
+
+使用 Node.js 24 运行 `node --test` 即可核对教材和边界算例。推送与 Pull Request 都会触发数值回归。历次改动见 [更新记录](CHANGELOG.md)。
+
+项目代码和文档采用 [MIT 许可证](LICENSE)。随附的 DM Sans 字体采用 [SIL Open Font License 1.1](assets/fonts/OFL.txt)。
 
 ## 目录结构
 

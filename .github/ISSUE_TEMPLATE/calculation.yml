@@ -1,0 +1,23 @@
+name: 计算或绘图问题
+description: 报告数值、稳定性或曲线与参考结果的差异
+body:
+  - type: input
+    id: model
+    attributes:
+      label: 分享链接
+      description: 在网页右上角点击「分享」，粘贴可以直接复现的链接。
+      placeholder: https://larryhul.github.io/control-plots/#n=1...
+    validations:
+      required: true
+  - type: textarea
+    id: discrepancy
+    attributes:
+      label: 当前显示与预期结果
+      description: 写下出现差异的图、数值或状态。可以附教材推导、软件结果或截图。
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 浏览器与设备
+      placeholder: 例如 Chrome 桌面版、iPhone Safari

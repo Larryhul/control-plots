@@ -205,6 +205,7 @@ canvas { display: block; width: 100%; cursor: crosshair; touch-action: pan-y; }
 .figs:not([data-view=all]) .fig { grid-column: 1 / -1; padding: 24px; }
 .figs:not([data-view=all]) #cRL, .figs:not([data-view=all]) #cNyq, .figs:not([data-view=all]) #cNic, .figs:not([data-view=all]) #cStep { height: min(55vw, 520px); min-height: 330px; }
 .figs:not([data-view=all]) #cMag, .figs:not([data-view=all]) #cPh { height: 250px; }
+.mobile-gain-dock { display: none; }
 .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 100; width: max-content; max-width: calc(100% - 32px); margin: 0; padding: 13px 20px; color: var(--paper); background: var(--fg); border-radius: 6px; font-size: 15px; box-shadow: 0 5px 24px #13201920; }
 dialog { width: min(580px, calc(100% - 32px)); max-height: calc(100dvh - 64px); padding: 28px; background: var(--paper); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; font-size: 16px; }
 dialog::backdrop { background: #13201965; }
@@ -241,6 +242,7 @@ dialog::backdrop { background: #13201965; }
   #cNyq, #cNic, #cStep { height: 280px; }
 }
 @media (max-width: 760px) {
+  html.gain-docked { scroll-padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   :root { --page-gutter: 18px; }
   .site-header { padding-top: 20px; padding-bottom: 22px; gap: 12px; }
   .brand { font-size: 25px; gap: 4px; }
@@ -303,6 +305,43 @@ dialog::backdrop { background: #13201965; }
   .info th { width: 40%; }
   .info td { font-size: 14px; }
   .toast { bottom: 16px; font-size: 14px; }
+  .gain-docked body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .gain-docked .toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .mobile-gain-dock {
+    position: fixed;
+    z-index: 30;
+    inset: auto 0 0;
+    display: grid;
+    grid-template-columns: max-content minmax(60px, 84px) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 10px var(--page-gutter) calc(10px + env(safe-area-inset-bottom));
+    background: var(--paper);
+    border-top: 1px solid var(--line);
+  }
+  .mobile-gain-dock label { color: var(--fg2); font-size: 14px; }
+  .mobile-gain-dock label i { font: italic 17px var(--math); }
+  #mobileKNum {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 6px;
+    color: var(--fg);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    font-size: 17px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #mobileKSlider {
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: ew-resize;
+  }
+  .mobile-gain-error { grid-column: 1 / -1; margin: 0; font-size: 14px; color: var(--c2); }
   dialog { padding: 22px; }
 }
 @media (max-width: 360px) {

@@ -4,6 +4,20 @@
 const Ctl = (() => {
   const PI = Math.PI;
 
+  function frequencyPolynomial(coefficients) {
+    const scale = Math.max(...coefficients.map(Math.abs));
+    const unit = coefficients.map(coefficient => coefficient / scale);
+    const even = [], odd = [];
+    unit.forEach((coefficient, power) => {
+      const terms = power % 2 === 0 ? even : odd;
+      terms.push(terms.length % 2 === 0 ? coefficient : -coefficient);
+    });
+    if (!odd.length) odd.push(0);
+    // P(jω) = E(ω²) + jω O(ω²).
+    const squared = Poly.add(Poly.mul(even, even), [0, ...Poly.mul(odd, odd)]);
+    return { scale, logScale: Math.log(scale), unit, even, odd, squared };
+  }
+
   function makeSystem(numStr, denStr, tau = 0) {
     if (!Number.isFinite(tau) || tau < 0) throw new Error('延迟时间 τ 必须是非负有限数值');
     let A, B;
@@ -17,11 +31,22 @@ const Ctl = (() => {
     while (n.length > 1 && d.length > 1 && n[0] === 0 && d[0] === 0) { n = n.slice(1); d = d.slice(1); }
     if (d.length > 25 || n.length > 25) throw new Error('阶次过高（最高支持 24 阶）');
     const lead = d[d.length - 1];
-    n = n.map(c => c / lead); d = d.map(c => c / lead);
-    if (![...n, ...d].every(Number.isFinite)) throw new Error('系数归一化超出数值范围');
+    const normalize = c => {
+      const value = c / lead;
+      if (!Number.isFinite(value) || (c !== 0 && value === 0)) throw new Error('系数归一化超出数值范围');
+      return value;
+    };
+    n = n.map(normalize); d = d.map(normalize);
     const zeros = Poly.cleanRoots(Poly.roots(n)), poles = Poly.cleanRoots(Poly.roots(d));
     if (![...zeros, ...poles].every(r => r.every(Number.isFinite))) throw new Error('当前系数无法可靠求根，请调整数值尺度');
     const sys = { num: n, den: d, zeros, poles, m: n.length - 1, n: d.length - 1, kLead: n[n.length - 1], tau: tau > 0 ? tau : 0 };
+    sys.frequencyNum = frequencyPolynomial(n);
+    sys.frequencyDen = frequencyPolynomial(d);
+    const { even: numEven, odd: numOdd } = sys.frequencyNum;
+    const { even: denEven, odd: denOdd } = sys.frequencyDen;
+    const imaginary = Poly.add(Poly.mul(numOdd, denEven), Poly.scale(Poly.mul(numEven, denOdd), -1));
+    sys.realAxisDegenerate = Poly.isZero(imaginary);
+    sys.realAxisFrequencies = Poly.positiveRoots(imaginary).map(Math.sqrt);
     const mags = [...zeros, ...poles].map(Cx.abs).filter(v => v > 0);
     sys.corners = [...new Set(mags.map(v => +v.toPrecision(6)))].sort((a, b) => a - b);
     const all = sys.corners.slice();
@@ -55,12 +80,33 @@ const Ctl = (() => {
     return w - b >= 0 ? PI / 2 : -PI / 2;
   }
 
-  /* K=1 时的频率响应：[ln|G|, 连续相角(rad)] */
-  function resp(sys, sg, w) {
-    let lm = Math.log(Math.abs(sys.kLead)), ph = (sys.kLead * sg < 0 ? PI : 0) + sys.shift[sg] - w * sys.tau;
-    for (const z of sys.zeros) { lm += Math.log(Math.hypot(z[0], w - z[1])); ph += angRoot(z, w); }
-    for (const p of sys.poles) { lm -= Math.log(Math.hypot(p[0], w - p[1])); ph -= angRoot(p, w); }
-    return [lm, ph];
+  function responsePolynomial(polynomial, w) {
+    const p = polynomial.unit;
+    const degree = p.length - 1;
+    const inverse = w > 1;
+    const factor = inverse ? -1 / w : w;
+    const start = inverse ? 0 : degree;
+    const increment = inverse ? 1 : -1;
+    let real = p[start], imaginary = 0;
+    for (let i = start + increment; i >= 0 && i <= degree; i += increment) {
+      [real, imaginary] = [p[i] - factor * imaginary, factor * real];
+    }
+    const logMagnitude = Math.log(Math.hypot(real, imaginary)) + polynomial.logScale;
+    const phase = Math.atan2(imaginary, real);
+    if (!inverse) return [logMagnitude, phase];
+    return [logMagnitude + degree * Math.log(w), phase + (degree % 4) * PI / 2];
+  }
+
+  /* 由原多项式计算频率响应，零极点仅用于选择相角的连续分支。 */
+  function resp(sys, sg, w, tau = sys.tau) {
+    const [numMagnitude, numPhase] = responsePolynomial(sys.frequencyNum, w);
+    const [denMagnitude, denPhase] = responsePolynomial(sys.frequencyDen, w);
+    const principal = numPhase - denPhase + (sg < 0 ? PI : 0);
+    let estimate = (sys.kLead * sg < 0 ? PI : 0) + sys.shift[sg];
+    for (const z of sys.zeros) estimate += angRoot(z, w);
+    for (const p of sys.poles) estimate -= angRoot(p, w);
+    const winding = Math.round((estimate - principal) / (2 * PI));
+    return [numMagnitude - denMagnitude, principal + winding * 2 * PI - w * tau];
   }
 
   /* 渐近幅频特性（折线）dB */
@@ -114,33 +160,83 @@ const Ctl = (() => {
   function bisect(fn, a, b) {
     let fa = fn(a);
     for (let i = 0; i < 50; i++) {
-      const m = Math.sqrt(a * b), fm = fn(m);
+      const m = Math.sqrt(a) * Math.sqrt(b), fm = fn(m);
       if ((fm > 0) === (fa > 0)) { a = m; fa = fm; } else b = m;
     }
-    return Math.sqrt(a * b);
+    return Math.sqrt(a) * Math.sqrt(b);
+  }
+
+  function gainCrossings(sys, sg, K) {
+    const numerator = sys.frequencyNum;
+    const denominator = sys.frequencyDen;
+    const relativeGain = K * (numerator.scale / denominator.scale);
+    const gain = Number.isFinite(relativeGain) && relativeGain > 0
+      ? relativeGain : Math.exp(Math.log(K) + (numerator.logScale - denominator.logScale));
+    const nScale = Math.min(1, gain) ** 2;
+    const dScale = Math.min(1, 1 / gain) ** 2;
+    const equation = Poly.add(Poly.scale(numerator.squared, nScale), Poly.scale(denominator.squared, -dScale));
+    // 保留精确的直流与无穷远等幅条件，避免舍入产生伪交越。
+    if (Math.abs(K * sys.num[0]) === Math.abs(sys.den[0])) equation[0] = 0;
+    if (sys.m === sys.n && Math.abs(K * sys.kLead) === 1) equation[sys.n] = 0;
+    return Poly.positiveRoots(equation).map(x => {
+      const w = Math.sqrt(x);
+      const [lm, phase] = resp(sys, sg, w);
+      const ph = phase * 180 / PI;
+      return Math.abs(lm + Math.log(K)) < 1e-6 && Number.isFinite(ph) ? { w, ph, pm: wrap180(ph + 180) } : null;
+    }).filter(Boolean);
+  }
+
+  function negativeRealCrossings(sys, sg) {
+    const frequencies = sys.type === 0 ? [0, ...sys.realAxisFrequencies] : sys.realAxisFrequencies;
+    const crossings = [];
+    for (const w of frequencies) {
+      const [lm, phase] = resp(sys, sg, w, 0);
+      if (!Number.isFinite(lm) || Math.cos(phase) >= 0 || Math.abs(Math.sin(phase)) > 1e-7) continue;
+      const level = Math.round((phase + PI) / (2 * PI)) * 360 - 180;
+      crossings.push({ w, lm, level });
+    }
+    return crossings;
   }
 
   /* 截止频率/相角裕度、穿越频率/幅值裕度 */
   function margins(sys, sg, S, K) {
     if (K === 0) return { gc: [], pc: [], bestG: null, bestP: null, zeroGain: true };
-    const bounds = frequencyBounds(sys, K);
-    // 延迟不改变幅值，数值搜索可沿用有理部分的采样密度。
-    if (sys.tau > 0 || !S.complete || S.w[0] > bounds[0] || S.w[S.w.length - 1] < bounds[1]) S = freqSamples(sys, sg, K, false);
-    const lk = Math.log(K), gc = [], pc = [];
-    const seenPhaseCrossings = new Set();
-    for (let i = 0; i + 1 < S.w.length; i++) {
-      const a = S.lm[i] + lk, b = S.lm[i + 1] + lk;
-      if ((a > 0) !== (b > 0)) {
-        const w = bisect(x => resp(sys, sg, x)[0] + lk, S.w[i], S.w[i + 1]);
-        const ph = resp(sys, sg, w)[1] * 180 / PI;
-        gc.push({ w, ph, pm: wrap180(ph + 180) });
-      }
+    const lk = Math.log(K), gc = gainCrossings(sys, sg, K), pc = [];
+    if (sys.tau === 0) for (const point of negativeRealCrossings(sys, sg)) {
+      const db = (point.lm + lk) * 20 / Math.LN10;
+      pc.push({ w: point.w, db, gm: -db, level: point.level });
     }
+    if (sys.tau > 0) {
+      // 延迟使相角继续绕转。幅值交越由多项式求出，相角交越在频率范围内细化。
+      S = freqSamples(sys, sg, K, false);
+      const dc = sys.type === 0 && sg * sys.k0 < 0;
+      if (dc) {
+        const [lm, phase] = resp(sys, sg, 0);
+        const db = (lm + lk) * 20 / Math.LN10;
+        pc.push({ w: 0, db, gm: -db, level: Math.round((phase + PI) / (2 * PI)) * 360 - 180 });
+      }
+      scanDelayCrossings(sys, sg, S, lk, gc, pc);
+    }
+    // 同阶系统的无穷远边界对应闭环最高次项抵消。
+    if (sys.tau === 0 && sys.n === sys.m && sg * sys.kLead < 0) {
+      const db = 20 * (lk + Math.log(Math.abs(sys.kLead))) / Math.LN10;
+      const level = Math.round(resp(sys, sg, S.w[S.w.length - 1])[1] / PI) * 180;
+      pc.push({ w: Infinity, db, gm: -db, level, atInfinity: true });
+    }
+    pc.sort((a, b) => a.w - b.w);
+    let bestG = null, bestP = null;
+    for (const g of gc) if (!bestG || Math.abs(g.pm) < Math.abs(bestG.pm)) bestG = g;
+    for (const p of pc) if (!bestP || Math.abs(p.gm) < Math.abs(bestP.gm)) bestP = p;
+    return { gc, pc, bestG, bestP };
+  }
+
+  function scanDelayCrossings(sys, sg, S, lk, gc, pc) {
+    const seenPhaseCrossings = new Set();
     for (let i = 0; i + 1 < S.w.length; i++) {
       const lowPhase = Math.min(S.ph[i], S.ph[i + 1]), highPhase = Math.max(S.ph[i], S.ph[i + 1]);
       if (highPhase - lowPhase < 1e-10) continue;
       const first = Math.ceil((lowPhase + PI) / (2 * PI)), last = Math.floor((highPhase + PI) / (2 * PI));
-      if (first > last) continue;
+      if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first > last) continue;
       const levels = new Set();
       // 密集延迟绕转只需保留区间端点及 0 dB 附近的交点，即可选择最小绝对裕度。
       for (let j = 0; j < Math.min(8, last - first + 1); j++) { levels.add(first + j); levels.add(last - j); }
@@ -160,21 +256,14 @@ const Ctl = (() => {
         pc.push({ w, db, gm: -db, level: level * 180 / PI });
       }
     }
-    // 同阶系统可能在无穷频率达到负实轴，对应闭环最高次项消失的增益边界。
-    if (sys.tau === 0 && sys.n === sys.m && sg * sys.kLead < 0) {
-      const db = 20 * (Math.log(K) + Math.log(Math.abs(sys.kLead))) / Math.LN10;
-      const level = Math.round(resp(sys, sg, S.w[S.w.length - 1])[1] / PI) * 180;
-      pc.push({ w: Infinity, db, gm: -db, level, atInfinity: true });
-    }
-    pc.sort((a, b) => a.w - b.w);
-    let bestG = null, bestP = null;
-    for (const g of gc) if (!bestG || Math.abs(g.pm) < Math.abs(bestG.pm)) bestG = g;
-    for (const p of pc) if (!bestP || Math.abs(p.gm) < Math.abs(bestP.gm)) bestP = p;
-    return { gc, pc, bestG, bestP };
   }
 
   /* ---------- 根轨迹 ---------- */
-  const charPoly = (sys, sg, K) => Poly.add(sys.den, Poly.scale(sys.num, sg * K));
+  function charPoly(sys, sg, K) {
+    const coefficients = Poly.add(sys.den, Poly.scale(sys.num, sg * K));
+    if (K > 0 && singularGains(sys, sg).includes(K)) coefficients[sys.n] = 0;
+    return coefficients;
+  }
 
   function singularGains(sys, sg) {
     if (sys.n !== sys.m) return [];
@@ -277,35 +366,13 @@ const Ctl = (() => {
     return out;
   }
 
-  /* 与虚轴交点：Im[D(jω)·conj(N(jω))] = 0 的非负实根 */
-  function jwCross(sys, sg, Kref) {
-    const J = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-    const cp = (p, conj) => p.map((c, k) => [c * J[k % 4][0], c * J[k % 4][1] * (conj ? -1 : 1)]);
-    const Dj = cp(sys.den, false), Nc = cp(sys.num, true);
-    const P = [];
-    for (let i = 0; i < Dj.length + Nc.length - 1; i++) P.push([0, 0]);
-    for (let i = 0; i < Dj.length; i++)
-      for (let j = 0; j < Nc.length; j++) {
-        const v = Cx.mul(Dj[i], Nc[j]);
-        P[i + j][0] += v[0]; P[i + j][1] += v[1];
-      }
-    let sc = 0;
-    for (const c of P) sc = Math.max(sc, Cx.abs(c));
-    const Q = Poly.trim(P.map(c => (Math.abs(c[1]) < 1e-12 * sc ? 0 : c[1])));
-    if (Poly.isZero(Q)) return { degenerate: true, list: [] };
-    const list = [];
-    for (const r of Poly.cleanRoots(Poly.roots(Q))) {
-      if (Math.abs(r[1]) > 1e-5 * (sys.R + Cx.abs(r)) || r[0] < -1e-9 * sys.R) continue;
-      const w = Math.max(0, r[0]), s = [0, w];
-      const N = Poly.eval(sys.num, s), D = Poly.eval(sys.den, s), n2 = N[0] * N[0] + N[1] * N[1];
-      if (n2 === 0) continue;
-      const K = -(D[0] * N[0] + D[1] * N[1]) / n2 * sg;
-      if (!(K > 1e-9 * Kref) || !isFinite(K)) continue;
-      if (list.some(c => Math.abs(c.w - w) < 1e-6 * (sys.R + w) && Math.abs(c.K - K) < 1e-6 * K)) continue;
-      list.push({ w, K });
-    }
-    list.sort((a, b) => a.K - b.K);
-    return { degenerate: false, list };
+  /* 无延迟系统在频率响应抵达负实轴时可通过改变增益令闭环极点跨过虚轴。 */
+  function jwCross(sys, sg) {
+    const list = negativeRealCrossings(sys, sg)
+      .map(({ w, lm }) => ({ w, K: Math.exp(-lm) }))
+      .filter(({ K }) => K > 0 && Number.isFinite(K))
+      .sort((a, b) => a.K - b.K);
+    return { degenerate: sys.realAxisDegenerate, list };
   }
 
   function isStable(sys, sg, K) {
@@ -363,7 +430,7 @@ const Ctl = (() => {
   }
 
   function step(sys, sg, K, Tuser) {
-    const numerator = Poly.scale(sys.num, sg * K), denominator = Poly.add(sys.den, numerator);
+    const numerator = Poly.scale(sys.num, sg * K), denominator = charPoly(sys, sg, K);
     if (![...numerator, ...denominator].every(Number.isFinite)) return { err: '当前系数或增益超出仿真数值范围' };
     const num = Poly.trim(numerator), den = Poly.trim(denominator);
     if (Poly.isZero(den)) return { err: '闭环特征多项式恒为 0' };

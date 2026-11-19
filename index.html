@@ -14,7 +14,7 @@
 <script>
   try { const theme = localStorage.getItem('theme'); if (theme) document.documentElement.dataset.theme = theme; } catch (error) {}
 </script>
-<link rel="stylesheet" href="style.css?v=20261119">
+<link rel="stylesheet" href="style.css?v=0.2.0">
 </head>
 <body>
 <header class="site-header">
@@ -164,6 +164,12 @@
   </section>
 </main>
 
+<section id="mobileGainDock" class="mobile-gain-dock" aria-label="快速调节增益" hidden>
+  <label for="mobileKNum">增益 <i>K</i></label>
+  <input id="mobileKNum" type="number" min="0" step="any" inputmode="decimal" value="1">
+  <input id="mobileKSlider" type="range" min="-3.5" max="4" step="0.005" value="0" aria-label="增益对数滑块">
+  <p id="mobileKErr" class="mobile-gain-error" role="alert" hidden></p>
+</section>
 <p id="actionFeedback" class="toast" role="status" hidden></p>
 <dialog id="helpDialog" aria-labelledby="helpTitle">
   <div class="dialog-heading"><h2 id="helpTitle">课堂练习</h2><button id="helpClose" type="button" class="close-button" aria-label="关闭练习与帮助">×</button></div>
@@ -183,9 +189,9 @@
     <a href="https://github.com/Larryhul/control-plots/issues">反馈问题</a>
   </details>
 </dialog>
-<script src="js/math.js?v=20261119"></script>
-<script src="js/control.js?v=20261119"></script>
-<script src="js/plot.js?v=20261119"></script>
-<script src="js/app.js?v=20261119"></script>
+<script src="js/math.js?v=0.2.0"></script>
+<script src="js/control.js?v=0.2.0"></script>
+<script src="js/plot.js?v=0.2.0"></script>
+<script src="js/app.js?v=0.2.0"></script>
 </body>
 </html>

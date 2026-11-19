@@ -14,15 +14,13 @@ const Cx = {
 
 const Poly = {
   trim(p) {
-    let m = 0;
-    for (const c of p) m = Math.max(m, Math.abs(c));
     let n = p.length;
-    while (n > 1 && Math.abs(p[n - 1]) <= m * 1e-13) n--;
+    while (n > 1 && p[n - 1] === 0) n--;
     return p.slice(0, n);
   },
   add(a, b) {
     const n = Math.max(a.length, b.length), r = new Array(n);
-    for (let i = 0; i < n; i++) r[i] = (a[i] || 0) + (b[i] || 0);
+    for (let i = 0; i < n; i++) r[i] = (a[i] ?? 0) + (b[i] ?? 0);
     return r;
   },
   scale: (a, k) => a.map(c => c * k),
@@ -39,6 +37,70 @@ const Poly = {
     for (let i = a.length - 1; i >= 0; i--)
       r = [r[0] * s[0] - r[1] * s[1] + a[i], r[0] * s[1] + r[1] * s[0]];
     return r;
+  },
+
+  // 由导数的正实根分隔单调区间。对数坐标二分覆盖不同数量级的根。
+  positiveRoots(input) {
+    const first = input.findIndex(coefficient => coefficient !== 0);
+    if (first < 0) return [];
+    const p = Poly.trim(input.slice(first));
+    const degree = p.length - 1;
+    if (degree === 0) return [];
+    if (degree === 1) {
+      const root = -p[0] / p[1];
+      return root > 0 && Number.isFinite(root) ? [root] : [];
+    }
+
+    function logUpper(coefficients) {
+      const logLeading = Math.log(Math.abs(coefficients[degree]));
+      let bound = -Infinity;
+      for (let i = 0; i < degree; i++) {
+        const logRatio = Math.log(Math.abs(coefficients[i])) - logLeading;
+        bound = Math.max(bound, logRatio / (degree - i));
+      }
+      return Math.LN2 + bound;
+    }
+    const low = Math.exp(Math.max(Math.log(Number.MIN_VALUE), -logUpper(p.slice().reverse())));
+    const high = Math.exp(Math.min(Math.log(Number.MAX_VALUE), logUpper(p)));
+    if (!(low <= high)) return [];
+
+    // 在 x>1 时求 p(x)/xⁿ，避免霍纳法中间结果溢出。
+    function relativeValue(x) {
+      const descending = x <= 1;
+      const ratio = descending ? x : 1 / x;
+      const start = descending ? degree : 0;
+      const increment = descending ? -1 : 1;
+      let value = p[start], scale = Math.abs(value);
+      for (let i = start + increment; i >= 0 && i <= degree; i += increment) {
+        value = value * ratio + p[i];
+        scale = scale * ratio + Math.abs(p[i]);
+      }
+      return value / scale;
+    }
+
+    const critical = Poly.positiveRoots(Poly.deriv(p)).filter(x => x > low && x < high);
+    const points = [low, ...critical, high];
+    const values = points.map(relativeValue);
+    const roots = [];
+    const tolerance = 8 * degree * Number.EPSILON;
+    for (let i = 0; i < points.length; i++) {
+      const value = values[i];
+      const touchesZero = Math.abs(value) <= tolerance;
+      if (touchesZero) roots.push(points[i]);
+      if (i === 0 || touchesZero || Math.abs(values[i - 1]) <= tolerance
+        || Math.sign(value) === Math.sign(values[i - 1])) continue;
+      let left = Math.log(points[i - 1]), right = Math.log(points[i]);
+      const sign = Math.sign(values[i - 1]);
+      for (let iteration = 0; iteration < 56; iteration++) {
+        const middle = (left + right) / 2;
+        const middleValue = relativeValue(Math.exp(middle));
+        if (middleValue === 0) { left = right = middle; break; }
+        if (Math.sign(middleValue) === sign) left = middle;
+        else right = middle;
+      }
+      roots.push(Math.exp((left + right) / 2));
+    }
+    return roots;
   },
 
   /* Aberth–Ehrlich 法求全部根；init 可给出上一次的根作为初值（用于根轨迹连续跟踪） */

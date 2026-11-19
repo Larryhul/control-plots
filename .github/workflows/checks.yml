@@ -1,0 +1,25 @@
+name: 数值回归
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  control-tests:
+    name: 控制系统算例
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 检查 JavaScript 语法
+        run: |
+          for file in js/*.js; do
+            node --check "$file"
+          done
+      - name: 核对教材与边界算例
+        run: node --test

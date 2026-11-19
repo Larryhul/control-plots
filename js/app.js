@@ -58,6 +58,10 @@
   let closedAnalysis = null, comparison = null, rlHome = null;
   let feedbackTimer = 0;
   const gainScale = { low: -3, high: 4 };
+  const gainFields = [
+    { number: $('kNum'), slider: $('kSlider'), error: $('kErr') },
+    { number: $('mobileKNum'), slider: $('mobileKSlider'), error: $('mobileKErr') },
+  ];
 
   const P = {
     rl: new Plot($('cRL'), { equal: true, xlabel: '实轴 σ', ylabel: '虚轴 jω', onHover: hoverRL, onClick: h => { hoverRL(h); if (rlHoverK !== null) setK(rlHoverK); } }),
@@ -103,7 +107,7 @@
     RL = Ctl.rootLocus(sys, sg);
     asy = Ctl.asymptotes(sys, sg);
     brks = Ctl.breakaways(sys, sg, RL.Kref);
-    cross = Ctl.jwCross(sys, sg, RL.Kref);
+    cross = Ctl.jwCross(sys, sg);
     ranges = Ctl.stableRanges(sys, sg, cross.list, RL.Kref);
     const series = [], markers = [];
     if (asy) {
@@ -165,8 +169,10 @@
   }
 
   function buildRuler() {
-    $('kSlider').min = gainScale.low - 0.5;
-    $('kSlider').max = gainScale.high;
+    for (const { slider } of gainFields) {
+      slider.min = gainScale.low - 0.5;
+      slider.max = gainScale.high;
+    }
     let lines = '<line x1="0" x2="0" y1="2" y2="34"/>';
     const labels = ['<span style="left:0">0</span>'];
     const labelEvery = Math.max(1, Math.ceil((gainScale.high - gainScale.low) / 4));
@@ -186,14 +192,20 @@
   }
 
   function syncGainControls(source) {
+    const previousLow = gainScale.low, previousHigh = gainScale.high;
     if (state.K > 0) {
       gainScale.low = Math.min(gainScale.low, Math.floor(Math.log10(state.K)));
       gainScale.high = Math.max(gainScale.high, Math.ceil(Math.log10(state.K)));
     }
-    buildRuler();
-    if (source !== 'num') $('kNum').value = state.K;
-    if (source !== 'slider' || state.K === 0) $('kSlider').value = state.K === 0 ? gainScale.low - 0.5 : Math.log10(state.K);
-    $('kSlider').setAttribute('aria-valuetext', 'K = ' + state.K);
+    if (previousLow !== gainScale.low || previousHigh !== gainScale.high) buildRuler();
+    const exponent = state.K === 0 ? gainScale.low - 0.5 : Math.log10(state.K);
+    for (const { number, slider, error } of gainFields) {
+      if (number !== source) number.value = state.K;
+      if (slider !== source || state.K === 0) slider.value = exponent;
+      slider.setAttribute('aria-valuetext', 'K = ' + state.K);
+      number.removeAttribute('aria-invalid');
+      error.hidden = true;
+    }
     if (sys) paintTrack();
   }
 
@@ -215,8 +227,12 @@
     $('status').className = 'status ' + description[0];
     $('status').innerHTML = `<span class="status-dot" aria-hidden="true"></span><strong>${description[1]}</strong><span class="sub visually-hidden">K = ${fmt(state.K)}，${description[2]}</span>`;
     $('status').title = description[2];
-    tile('相角裕度', g ? fmt(g.pm) : '—', g ? '°' : '', g && g.pm <= 0 ? 'bad' : '', g ? `ωc = ${fmt(g.w)} rad/s` : state.K === 0 ? 'K=0，相角未定义' : '幅值不穿越 0 dB');
-    tile('幅值裕度', p ? fmt(p.gm) : state.K === 0 ? '—' : '∞', p ? 'dB' : '', p && p.gm <= 0 ? 'bad' : '', p ? p.atInfinity ? 'ωx → ∞，最高次项抵消' : `ωx = ${fmt(p.w)} rad/s` : state.K === 0 ? 'K=0，裕度未定义' : '相角不穿越 −180°');
+    tile('相角裕度', g ? fmt(g.pm) : '—', g ? '°' : '', g && g.pm <= 0 ? 'bad' : '', g ? `ωc = ${fmt(g.w)} rad/s` : state.K === 0 ? 'K=0，相角未定义' : '无正频率的 0 dB 交越');
+    const phaseFrequency = p?.atInfinity ? 'ωx → ∞，最高次项抵消'
+      : p?.w === 0 ? 'ωx = 0 rad/s（直流）'
+      : p ? `ωx = ${fmt(p.w)} rad/s`
+      : state.K === 0 ? 'K=0，裕度未定义' : '未找到负实轴交点';
+    tile('幅值裕度', p ? fmt(p.gm) : state.K === 0 ? '—' : '∞', p ? 'dB' : '', p && p.gm <= 0 ? 'bad' : '', phaseFrequency);
     const ok = stp && !stp.err && stp.stable && stp.os != null;
     tile('超调量', ok ? fmt(stp.os) : '—', ok ? '%' : '', '', ok && stp.tp ? `tp = ${fmt(stp.tp)} s` : '');
     tile('调节时间', ok ? fmt(stp.ts) : '—', ok ? 's' : '', '', '2% 误差带');
@@ -283,7 +299,7 @@
   function fitBodeRange() {
     const frequencies = [sys.wLow / 10, sys.wHigh * 10];
     for (const analysis of [mar, comparison && comparison.mar].filter(Boolean)) {
-      for (const point of [...analysis.gc, ...analysis.pc]) if (Number.isFinite(point.w)) frequencies.push(point.w / 3, point.w * 3);
+      for (const point of [...analysis.gc, ...analysis.pc]) if (point.w > 0 && Number.isFinite(point.w)) frequencies.push(point.w / 3, point.w * 3);
     }
     if (comparison) frequencies.push(comparison.sys.wLow / 10, comparison.sys.wHigh * 10);
     const low = Math.floor(Math.log10(Math.min(...frequencies))), high = Math.ceil(Math.log10(Math.max(...frequencies)));
@@ -320,6 +336,10 @@
     const K = state.K, sg = state.sg, lk = Math.log(K), a = P.mag.view[0], b = P.mag.view[1], N = 600;
     const lx = [];
     for (let i = 0; i <= N; i++) lx.push(a + (b - a) * i / N);
+    for (const { w } of mar.gc) {
+      const x = Math.log10(w);
+      if (x > a && x < b) lx.push(x);
+    }
     for (const r of [...sys.poles, ...sys.zeros]) {       // 谐振峰附近加密
       const mg = Cx.abs(r);
       if (r[1] > 0 && Math.abs(r[0]) < 0.5 * mg) {
@@ -369,7 +389,7 @@
       pm.push({ x, y: g.ph, type: 'dot', color: '--c3', label: 'γ=' + fmt(g.pm) + '°' });
     });
     mar.pc.slice(0, 4).forEach(p => {
-      if (p.atInfinity) return;
+      if (!(p.w > 0 && Number.isFinite(p.w))) return;
       const x = Math.log10(p.w);
       ms.push({ x: [x, x], y: [0, p.db], color: '--c3', width: 3 });
       mm.push({ x, y: p.db, type: 'dot', color: '--c3', label: 'h=' + fmt(p.gm) + ' dB' });
@@ -379,7 +399,13 @@
     P.mag.legend = [{ label: '精确曲线', color: '--c1' }, { label: '渐近线', color: '--c4', dash: [7, 4] }];
     if (referenceDb.length) P.mag.legend.push({ label: '对比', color: '--c3', dash: [6, 4] });
     P.ph.series = ps; P.ph.markers = pm; P.ph.hlines = [];
-    for (let v = Math.ceil((pl + 180) / 360) * 360 - 180; v <= pu; v += 360) P.ph.hlines.push({ v, color: '--c2', dash: [5, 4] });
+    const lineSpacing = 360 * Math.max(1, Math.ceil((pu - pl) / (360 * 24)));
+    const firstLine = Math.ceil((pl + 180) / lineSpacing) * lineSpacing - 180;
+    for (let i = 0; i <= 24; i++) {
+      const v = firstLine + i * lineSpacing;
+      if (!(v <= pu)) break;
+      P.ph.hlines.push({ v, color: '--c2', dash: [5, 4] });
+    }
     P.mag.draw(); P.ph.draw();
   }
   function hoverBode(h) {
@@ -460,8 +486,11 @@
     P.nyq.markers = mk;
     P.nyq.legend = [{ label: '正频率', color: '--c1' }, { label: '负频率', color: '--c1', dash: [5, 4] }];
     if (comparison) P.nyq.legend.push({ label: '对比', color: '--c3', dash: [6, 4] });
-    $('nyqNote').hidden = !S.brk.some(Boolean) && S.complete;
-    $('nyqNote').textContent = '高频密集绕转处采用断线显示。裕度使用独立的连续相角搜索。';
+    const nyqNotes = [];
+    if (sys.imagPoles) nyqNotes.push('开环含虚轴极点。图中显示频率响应，完整奈氏路径还需绕开这些极点。');
+    if (S.brk.some(Boolean) || !S.complete) nyqNotes.push('高频密集绕转处采用断线显示。');
+    $('nyqNote').hidden = nyqNotes.length === 0;
+    $('nyqNote').textContent = nyqNotes.join(' ');
     P.nyq.draw();
   }
   function hoverNyq(h) {
@@ -626,9 +655,9 @@
       row('闭环稳定性', statusText[closedAnalysis.kind]);
     }
     const g = mar.bestG, p = mar.bestP;
-    row('截止频率 ω<sub>c</sub>', g ? fmt(g.w) + ' rad/s' : '无<span class="dim">（幅值不穿越 0 dB）</span>');
+    row('截止频率 ω<sub>c</sub>', g ? fmt(g.w) + ' rad/s' : '无正频率的 0 dB 交越');
     row('相角裕度 γ', g ? `<span class="${g.pm > 0 ? 'good' : 'bad'}">${fmt(g.pm)}°</span>` : state.K === 0 ? 'K=0，未定义' : '—');
-    row('穿越频率 ω<sub>x</sub>', p ? p.atInfinity ? 'ω → ∞' : fmt(p.w) + ' rad/s' : '无<span class="dim">（相角不穿越 −180°）</span>');
+    row('穿越频率 ω<sub>x</sub>', p ? p.atInfinity ? 'ω → ∞' : p.w === 0 ? '0 rad/s（直流）' : fmt(p.w) + ' rad/s' : '未找到负实轴交点');
     row('幅值裕度 h', p ? `${fmt(p.gm)} dB<span class="dim">（${fmt(Math.pow(10, p.gm / 20))} 倍）</span>` : state.K === 0 ? 'K=0，未定义' : '∞');
     if (sys.tau === 0 && !['singular', 'unknown'].includes(closedAnalysis.kind)) row('奈氏关系', `P = ${Pn}，Z = ${Z}，R = P − Z = ${fmt(Pn - Z)}<span class="dim">（由极点数推得的逆时针包围数）</span>`);
     sec('阶跃响应');
@@ -891,13 +920,12 @@
   /* ================= 交互 ================= */
   function setK(K, src) {
     if (!Number.isFinite(K) || K < 0) {
-      $('kErr').textContent = '请输入非负有限数值，曲线保留上次有效增益。';
-      $('kErr').hidden = false;
-      $('kNum').setAttribute('aria-invalid', 'true');
+      const field = gainFields.find(({ number }) => number === src) || gainFields[0];
+      field.error.textContent = '请输入非负有限数值，曲线保留上次有效增益。';
+      field.error.hidden = false;
+      field.number.setAttribute('aria-invalid', 'true');
       return;
     }
-    $('kErr').hidden = true;
-    $('kNum').removeAttribute('aria-invalid');
     state.K = K;
     syncGainControls(src);
     schedule();
@@ -927,7 +955,6 @@
     state.duration = e.t || 0;
     $('tEnd').value = state.duration > 0 ? state.duration : '';
     state.K = e.k;
-    $('kErr').hidden = true; $('kNum').removeAttribute('aria-invalid');
     syncGainControls();
     rebuild();
   }
@@ -993,22 +1020,27 @@
       else rebuild();
     } catch (error) { $('err').textContent = error.message; $('err').hidden = false; }
   });
-  $('kSlider').addEventListener('input', () => {
-    const exponent = Number($('kSlider').value);
-    setK(exponent < gainScale.low - 0.25 ? 0 : Math.pow(10, Math.max(gainScale.low, exponent)), 'slider');
-  });
-  $('kSlider').addEventListener('keydown', event => {
-    const lowestGain = Math.pow(10, gainScale.low);
-    if (state.K === 0 && ['ArrowRight', 'ArrowUp'].includes(event.key)) {
-      event.preventDefault(); setK(lowestGain);
-    } else if (state.K <= lowestGain && ['ArrowLeft', 'ArrowDown'].includes(event.key)) {
-      event.preventDefault(); setK(0);
-    }
-  });
-  $('kNum').addEventListener('input', () => setK($('kNum').value === '' ? NaN : Number($('kNum').value), 'num'));
-  $('kNum').addEventListener('blur', () => {
-    if ($('kNum').getAttribute('aria-invalid') === 'true') { $('kNum').value = state.K; $('kNum').removeAttribute('aria-invalid'); $('kErr').hidden = true; }
-  });
+  for (const { number, slider, error } of gainFields) {
+    slider.addEventListener('input', () => {
+      const exponent = Number(slider.value);
+      setK(exponent < gainScale.low - 0.25 ? 0 : Math.pow(10, Math.max(gainScale.low, exponent)), slider);
+    });
+    slider.addEventListener('keydown', event => {
+      const lowestGain = Math.pow(10, gainScale.low);
+      if (state.K === 0 && ['ArrowRight', 'ArrowUp'].includes(event.key)) {
+        event.preventDefault(); setK(lowestGain);
+      } else if (state.K <= lowestGain && ['ArrowLeft', 'ArrowDown'].includes(event.key)) {
+        event.preventDefault(); setK(0);
+      }
+    });
+    number.addEventListener('input', () => setK(number.value === '' ? NaN : Number(number.value), number));
+    number.addEventListener('blur', () => {
+      if (number.getAttribute('aria-invalid') !== 'true') return;
+      number.value = state.K;
+      number.removeAttribute('aria-invalid');
+      error.hidden = true;
+    });
+  }
   $('frequency').addEventListener('input', () => {
     const value = Number($('frequency').value);
     $('frequency').setCustomValidity($('frequency').value === '' || Number.isFinite(value) && value > 0 ? '' : '频率须为正有限数值');
@@ -1095,8 +1127,17 @@
     focusTarget?.focus({ preventScroll: true });
   });
   const mobileLayout = window.matchMedia('(max-width: 760px)');
-  const updateControlLayout = () => { $('controlOptions').open = !mobileLayout.matches; };
+  function updateMobileGain() {
+    const show = mobileLayout.matches && $('kSlider').getBoundingClientRect().bottom <= 0;
+    $('mobileGainDock').hidden = !show;
+    document.documentElement.classList.toggle('gain-docked', show);
+  }
+  const updateControlLayout = () => {
+    $('controlOptions').open = !mobileLayout.matches;
+    updateMobileGain();
+  };
   mobileLayout.addEventListener('change', updateControlLayout);
+  new IntersectionObserver(updateMobileGain).observe($('kSlider'));
   updateControlLayout();
   updateThemeLabel();
   document.fonts.ready.then(() => { redrawAll(); renderLegends(); });
