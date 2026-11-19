@@ -15,6 +15,8 @@ npm run test:browser
 
 只运行一个浏览器时，可用 `npm run test:browser -- --project=firefox`。Linux 上首次安装浏览器可用 `npx playwright install --with-deps`。
 
+GitHub 检查使用 Playwright 官方镜像运行三个浏览器引擎。升级 `@playwright/test` 时，同步更新 `.github/workflows/checks.yml` 中的镜像版本。
+
 修复数值判断时，在 `test/control.test.cjs` 加入产生差异的算例，并注明可复核的解析值、教材来源或参考软件结果。修改交互时，在 `e2e/` 补充对应的用户操作。Pull Request 中写出用户能看到的变化和复现方式。
 
 ## 发版

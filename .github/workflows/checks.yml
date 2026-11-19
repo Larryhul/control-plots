@@ -26,19 +26,12 @@ jobs:
         run: npm test
 
   browser-tests:
-    name: 浏览器回归（${{ matrix.engine }}）
-    runs-on: ubuntu-latest
+    name: 浏览器回归（Chromium、Firefox、WebKit）
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - engine: chromium
-            projects: --project=chromium --project=android
-          - engine: firefox
-            projects: --project=firefox
-          - engine: webkit
-            projects: --project=webkit --project=iphone
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
+      options: --ipc=host
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -47,13 +40,11 @@ jobs:
           cache: npm
       - name: 安装测试依赖
         run: npm ci
-      - name: 安装测试浏览器
-        run: npx playwright install --with-deps ${{ matrix.engine }}
       - name: 验证图表、交互与无障碍规则
-        run: npm run test:browser -- ${{ matrix.projects }}
+        run: npm run test:browser
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: browser-test-${{ matrix.engine }}
+          name: browser-test-results
           path: test-results/
           if-no-files-found: ignore
