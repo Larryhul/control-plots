@@ -26,6 +26,19 @@
     }
     return out.join('，');
   }
+  const breakName = point => ({ breakaway: '分离点', breakin: '会合点', stationary: '重根候选' })[point.kind];
+  const axisPoint = w => w === 0 ? 's = 0' : 's = ±j' + fmt(w);
+  const anglesText = angles => angles.map(angle => fmt(angle > 180 ? angle - 360 : angle) + '°').join('，');
+
+  function leadingPoles() {
+    if (!cl.length) return [];
+    const rightmost = Math.max(...cl.map(pole => pole[0]));
+    return cl.filter(pole => Math.abs(pole[0] - rightmost) <= 1e-7 * Math.max(1e-12, Math.abs(rightmost), Math.abs(pole[0])));
+  }
+
+  function highlightedCrossings(points, best) {
+    return (best ? [best, ...points.filter(point => point !== best)] : points).slice(0, 4);
+  }
   function polyHTML(p) {
     const t = [];
     for (let i = p.length - 1; i >= 0; i--) {
@@ -123,22 +136,27 @@
         const t = a / DEG;
         series.push({ x: [asy.sigma, asy.sigma + L * Math.cos(t)], y: [0, L * Math.sin(t)], color: '--muted', dash: [6, 5], width: 1 });
       }
+      markers.push({ x: asy.sigma, y: 0, type: 'diamond', color: '--c3', label: ['渐近线中心', `σₐ = ${fmt(asy.sigma)}`], priority: 3, r: 4 });
     }
-    RL.branches.forEach((b, i) => series.push({ x: b.x, y: b.y, brk: b.brk, color: '--c1', width: 2.4 }));
+    RL.branches.forEach(b => series.push({ x: b.x, y: b.y, brk: b.brk, color: '--c1', width: 2.4, direction: true }));
     const xs = [], ys = [];
     const add = (x, y) => { xs.push(x); ys.push(y); };
     for (const b of brks) {
-      markers.push({ x: b.s[0], y: b.s[1], type: 'diamond', color: '--c4', r: 4 });
-      if (b.s[1] !== 0) markers.push({ x: b.s[0], y: -b.s[1], type: 'diamond', color: '--c4', r: 4 });
+      markers.push({ x: b.s[0], y: b.s[1], type: 'diamond', color: '--c1', r: 4, label: [breakName(b), `${axisValue(b.s)} · K ${fmt(b.K)}`], priority: 4 });
+      if (b.s[1] !== 0) markers.push({ x: b.s[0], y: -b.s[1], type: 'diamond', color: '--c1', r: 4 });
       add(b.s[0], b.s[1]); add(b.s[0], -b.s[1]);
     }
     for (const c of cross.list) {
-      markers.push({ x: 0, y: c.w, type: 'dot', color: '--c2', label: 'K=' + fmt(c.K) });
-      if (c.w > 0) markers.push({ x: 0, y: -c.w, type: 'dot', color: '--c2' });
+      markers.push({ x: 0, y: c.w, type: 'o', color: '--c2', label: ['虚轴交点', `K ${fmt(c.K)} · ${axisPoint(c.w)}`], priority: 5, r: 4 });
+      if (c.w > 0) markers.push({ x: 0, y: -c.w, type: 'o', color: '--c2', r: 4 });
       add(0, c.w); add(0, -c.w);
     }
-    for (const z of sys.zeros) { markers.push({ x: z[0], y: z[1], type: 'o', color: '--fg' }); add(z[0], z[1]); }
-    for (const p of sys.poles) { markers.push({ x: p[0], y: p[1], type: 'x', color: '--fg' }); add(p[0], p[1]); }
+    for (const [roots, type] of [[sys.zeros, 'o'], [sys.poles, 'x']]) {
+      for (const root of roots) {
+        markers.push({ x: root[0], y: root[1], type, color: '--fg', label: axisValue(root) });
+        add(root[0], root[1]);
+      }
+    }
     if (asy) add(asy.sigma, 0);
     add(0, 0);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -149,6 +167,8 @@
     rlHome = [cx - h, cx + h, cy - h, cy + h];
     P.rl.setHome(rlHome, true);
   }
+
+  function axisValue(root) { return `s = ${rootsStr([root])}`; }
 
   /* K 滑块轨道按稳定区间着色（对数刻度 10^-3 … 10^4） */
   function paintTrack() {
@@ -275,7 +295,12 @@
     const referenceBranches = comparison && !sameSystem(comparison.model, state.model)
       ? comparison.RL.branches.map(branch => ({ x: branch.x, y: branch.y, brk: branch.brk, color: '--c3', dash: [6, 4], width: 1.6 })) : [];
     P.rl.series = rlStatic.series.concat(referenceBranches);
-    P.rl.markers = rlStatic.markers.concat(cl.map(p => ({ x: p[0], y: p[1], type: 'sq', color: '--accent', r: 4.5 })));
+    const dominant = leadingPoles(), featured = dominant.find(pole => pole[1] >= 0) || dominant[0];
+    const paired = featured && featured[1] !== 0 && dominant.some(pole => pole[1] * featured[1] < 0 && Math.abs(pole[1] + featured[1]) < 1e-7 * Math.abs(featured[1]));
+    P.rl.markers = rlStatic.markers.concat(cl.map(p => ({
+      x: p[0], y: p[1], type: 'sq', color: '--accent', r: 4.5,
+      label: p === featured ? ['主导极点', `s = ${paired ? cpx(p[0], Math.abs(p[1]), '±') : rootsStr([p])}`] : '', priority: 6,
+    })));
     if (comparison) P.rl.markers.push(...comparison.cl.map(p => ({ x: p[0], y: p[1], type: 'o', color: '--c3', r: 5 })));
     if (!P.rl.userView) {
       P.rl.setHome(rlHome);
@@ -283,7 +308,13 @@
     }
     $('rlModel').hidden = sys.tau === 0 && !(comparison && comparison.sys.tau > 0);
     $('rlModel').textContent = '根轨迹、闭环极点与稳定 K 区间采用 τ=0 模型。';
-    P.rl.legend = comparison ? [{ label: '当前闭环极点', color: '--accent' }, { label: '对比闭环极点', color: '--c3', dash: [6, 4] }] : [];
+    P.rl.legend = [
+      { label: 'K 增大方向', color: '--c1', symbol: '→' }, { label: '开环极点', color: '--fg', symbol: '×' },
+      ...(sys.zeros.length ? [{ label: '开环零点', color: '--fg', symbol: '○' }] : []),
+      { label: '当前闭环极点', color: '--accent', symbol: '▪' },
+    ];
+    if (asy) P.rl.legend.push({ label: '渐近线', color: '--muted', dash: [6, 5] });
+    if (comparison) P.rl.legend.push({ label: '对比', color: '--c3', symbol: '○' });
     P.rl.draw();
   }
   function hoverRL(h) {
@@ -350,7 +381,7 @@
     const K = state.K, sg = state.sg, lk = Math.log(K), a = P.mag.view[0], b = P.mag.view[1], N = 600;
     const lx = [];
     for (let i = 0; i <= N; i++) lx.push(a + (b - a) * i / N);
-    for (const { w } of mar.gc) {
+    for (const { w } of [...mar.gc, ...mar.pc]) {
       const x = Math.log10(w);
       if (x > a && x < b) lx.push(x);
     }
@@ -396,19 +427,24 @@
       ms.push({ x: lx, y: referenceDb, color: '--c3', dash: [6, 4], width: 1.8 });
       ps.push({ x: lx, y: referencePhase, color: '--c3', dash: [6, 4], width: 1.8 });
     }
-    mar.gc.slice(0, 4).forEach(g => {
+    highlightedCrossings(mar.gc, mar.bestG).forEach(g => {
       const x = Math.log10(g.w);
-      mm.push({ x, y: 0, type: 'dot', color: '--c2', label: 'ωc=' + fmt(g.w) });
-      ps.push({ x: [x, x], y: [g.ph - g.pm, g.ph], color: '--c3', width: 3 });
-      pm.push({ x, y: g.ph, type: 'dot', color: '--c3', label: 'γ=' + fmt(g.pm) + '°' });
+      mm.push({ x, y: 0, type: 'dot', color: '--c2', label: ['0 dB 交越', `ωc = ${fmt(g.w)}`], priority: g === mar.bestG ? 5 : 1 });
+      ps.push({ x: [x, x], y: [g.ph - g.pm, g.ph], color: '--c3', width: 1.6 });
+      pm.push({ x, y: g.ph, type: 'dot', color: '--c3', label: ['相角裕度 γ', `${fmt(g.pm)}°`], priority: g === mar.bestG ? 5 : 1 });
     });
-    mar.pc.slice(0, 4).forEach(p => {
+    highlightedCrossings(mar.pc, mar.bestP).forEach(p => {
       if (!(p.w > 0 && Number.isFinite(p.w))) return;
       const x = Math.log10(p.w);
-      ms.push({ x: [x, x], y: [0, p.db], color: '--c3', width: 3 });
-      mm.push({ x, y: p.db, type: 'dot', color: '--c3', label: 'h=' + fmt(p.gm) + ' dB' });
-      pm.push({ x, y: p.level, type: 'dot', color: '--c2', label: 'ωx=' + fmt(p.w), dyLabel: 12 });
+      ms.push({ x: [x, x], y: [0, p.db], color: '--c3', width: 1.6 });
+      mm.push({ x, y: p.db, type: 'dot', color: '--c3', label: ['幅值裕度 h', `${fmt(p.gm)} dB`], priority: p === mar.bestP ? 5 : 1 });
+      pm.push({ x, y: p.level, type: 'dot', color: '--c2', label: [`${fmt(p.level)}° 交越`, `ωx = ${fmt(p.w)}`], priority: p === mar.bestP ? 5 : 1 });
     });
+    for (const corner of sys.corners) {
+      const x = Math.log10(corner);
+      if (x <= a || x >= b) continue;
+      mm.push({ x, y: Ctl.asymDb(sys, K, corner), type: 'o', color: '--muted', r: 2.5, label: `转折 ${fmt(corner)}`, priority: -1 });
+    }
     P.mag.series = ms; P.mag.markers = mm;
     P.mag.legend = [{ label: '精确曲线', color: '--c1' }, { label: '渐近线', color: '--c4', dash: [7, 4] }];
     if (referenceDb.length) P.mag.legend.push({ label: '对比', color: '--c3', dash: [6, 4] });
@@ -479,6 +515,7 @@
       includeView(P.nyq, comparison.polar.re.map((real, i) => [real, comparison.polar.im[i]]), Math.max(3, Lm === Infinity ? 10 * Math.max(Math.abs(hx0), Math.abs(hx1), hy) : Lm));
     }
     const mk = [];
+    if (K === 0) mk.push({ x: 0, y: 0, type: 'dot', color: '--c1', label: ['零增益', 'L(jω) = 0'], priority: 4 });
     if (comparison && comparison.model.k === 0) mk.push({ x: 0, y: 0, type: 'o', color: '--c3', label: '对比 K=0' });
     const ins = i => re[i] >= hx0 && re[i] <= hx1 && Math.abs(im[i]) <= hy;
     const cum = new Float64Array(n);
@@ -489,16 +526,16 @@
     }
     if (tot > 0) {
       let i = 1;
-      for (const f of [0.1, 0.35, 0.6, 0.85]) {
+      for (const f of [0.32, 0.73]) {
         while (i < n - 1 && cum[i] < f * tot) i++;
         mk.push({ x: re[i], y: im[i], type: 'arrow', dx: re[i] - re[i - 1], dy: im[i] - im[i - 1], color: '--c1' });
       }
     }
-    mar.gc.slice(0, 3).forEach(g => mk.push({ x: Math.cos(g.ph / DEG), y: Math.sin(g.ph / DEG), type: 'dot', color: '--c3', r: 3.5, label: 'ωc=' + fmt(g.w) }));
-    mar.pc.filter(p => !p.atInfinity).slice(0, 3).forEach(p => mk.push({ x: -Math.pow(10, p.db / 20), y: 0, type: 'dot', color: '--c3', r: 3.5, label: 'ωx=' + fmt(p.w), dyLabel: 12 }));
-    mk.push({ x: -1, y: 0, type: 'plus', color: '--c2', label: '(−1, j0)', align: 'right', labelColor: '--c2' });
+    highlightedCrossings(mar.gc, mar.bestG).forEach(g => mk.push({ x: Math.cos(g.ph / DEG), y: Math.sin(g.ph / DEG), type: 'dot', color: '--c3', r: 3.5, label: ['单位圆交点', `ωc = ${fmt(g.w)}`], priority: g === mar.bestG ? 3 : 0 }));
+    highlightedCrossings(mar.pc, mar.bestP).filter(p => !p.atInfinity).forEach(p => mk.push({ x: -Math.pow(10, p.db / 20), y: 0, type: 'dot', color: '--c3', r: 3.5, label: ['负实轴交点', `ωx = ${fmt(p.w)}`], priority: p === mar.bestP ? 3 : 0 }));
+    mk.push({ x: -1, y: 0, type: 'plus', color: '--c2', label: ['临界点', '(−1, j0)'], priority: 6 });
     P.nyq.markers = mk;
-    P.nyq.legend = [{ label: '正频率', color: '--c1' }, { label: '负频率', color: '--c1', dash: [5, 4] }];
+    P.nyq.legend = [{ label: '正频率（箭头沿 ω 增大）', color: '--c1' }, { label: '负频率', color: '--c1', dash: [5, 4] }, { label: '单位圆', color: '--muted', dash: [3, 4] }];
     if (comparison) P.nyq.legend.push({ label: '对比', color: '--c3', dash: [6, 4] });
     const nyqNotes = [];
     if (sys.imagPoles) nyqNotes.push('开环含虚轴极点。图中显示频率响应，完整奈氏路径还需绕开这些极点。');
@@ -557,7 +594,7 @@
     x0 = Math.min(x0, xc); x1 = Math.max(x1, xc);
     const px = Math.max(15, (x1 - x0) * 0.08), py = Math.max(5, (y1 - y0) * 0.08);
     P.nic.setHome([x0 - px, x1 + px, y0 - py, y1 + py]);
-    P.nic.series = [{ x, y, color: '--c1', width: 2.2 }];
+    P.nic.series = [{ x, y, color: '--c1', width: 2.2, direction: true }];
     if (comparison && comparison.model.k > 0) {
       const referenceX = comparison.S.ph.map(phase => phase * DEG);
       const referenceY = comparison.S.lm.map(magnitude => (magnitude + Math.log(comparison.model.k)) * 20 / LN10);
@@ -570,10 +607,16 @@
     for (let k = Math.floor((x0 + 180) / 360) - 1; k <= Math.ceil((x1 + 180) / 360) + 1; k++) {
       const v = -180 + 360 * k;
       P.nic.vlines.push({ v, color: '--c2', dash: [5, 4] });
-      mk.push({ x: v, y: 0, type: 'plus', color: '--c2', label: k === kc ? `(${fmt(v)}°, 0 dB)` : '', labelColor: '--c2' });
+      mk.push({ x: v, y: 0, type: 'plus', color: '--c2', label: k === kc ? ['临界点', `(${fmt(v)}°, 0 dB)`] : '', priority: 6 });
     }
-    mar.gc.slice(0, 3).forEach(g => mk.push({ x: g.ph, y: 0, type: 'dot', color: '--c3', r: 3.5, label: 'γ=' + fmt(g.pm) + '°', dyLabel: 12 }));
-    mar.pc.filter(p => !p.atInfinity).slice(0, 3).forEach(p => mk.push({ x: p.level, y: p.db, type: 'dot', color: '--c3', r: 3.5, label: 'h=' + fmt(p.gm) + ' dB' }));
+    highlightedCrossings(mar.gc, mar.bestG).forEach(g => {
+      P.nic.series.push({ x: [g.ph - g.pm, g.ph], y: [0, 0], color: '--c3', width: 1.6 });
+      mk.push({ x: g.ph, y: 0, type: 'dot', color: '--c3', r: 3.5, label: ['相角裕度 γ', `${fmt(g.pm)}°`], priority: g === mar.bestG ? 4 : 1 });
+    });
+    highlightedCrossings(mar.pc, mar.bestP).filter(p => !p.atInfinity).forEach(p => {
+      P.nic.series.push({ x: [p.level, p.level], y: [0, p.db], color: '--c3', width: 1.6 });
+      mk.push({ x: p.level, y: p.db, type: 'dot', color: '--c3', r: 3.5, label: ['幅值裕度 h', `${fmt(p.gm)} dB`], priority: p === mar.bestP ? 4 : 1 });
+    });
     P.nic.markers = mk;
     P.nic.draw();
   }
@@ -589,6 +632,7 @@
   function drawStep() {
     const p = P.step;
     p.cursor = null;
+    p.markers = []; p.regions = []; p.vlines = [];
     $('mStep').hidden = true;
     if (stp.err) {
       p.series = []; p.hlines = []; p.legend = []; p.message = stp.err;
@@ -613,6 +657,21 @@
     let lo = 0, hi = 0;
     for (const v of stp.y) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     if (stp.stable && stp.yss != null) { lo = Math.min(lo, stp.yss); hi = Math.max(hi, stp.yss); }
+    if (stp.stable && Number.isFinite(stp.yss)) {
+      const tolerance = Math.abs(stp.yss) * 0.02;
+      if (tolerance > 0) p.regions = [{ y0: stp.yss - tolerance, y1: stp.yss + tolerance, color: '--c3', alpha: 0.18 }];
+      p.markers.push({ x: stp.T * 0.8, y: stp.yss, type: 'dot', r: 2.5, color: '--c2', label: ['稳态值', `c(∞) = ${fmt(stp.yss)}`], priority: 4 });
+      if (Number.isFinite(stp.tp)) {
+        const peak = stp.y[stp.t.indexOf(stp.tp)];
+        p.vlines.push({ v: stp.tp, color: '--axis', dash: [3, 4] });
+        p.markers.push({ x: stp.tp, y: peak, type: 'dot', color: '--c2', label: [`峰值 ${fmt(peak)} · ${fmt(stp.os)}%`, `tp = ${fmt(stp.tp)} s`], priority: 6 });
+      }
+      if (Number.isFinite(stp.ts) && stp.ts > 0) {
+        const level = stp.y[stp.t.indexOf(stp.ts)];
+        p.vlines.push({ v: stp.ts, color: '--c3', dash: [3, 4] });
+        p.markers.push({ x: stp.ts, y: level, type: 'dot', color: '--c3', label: ['调节时间 · 2%', `ts = ${fmt(stp.ts)} s`], priority: 5 });
+      }
+    }
     const pad = (hi - lo || 1) * 0.08;
     p.setHome([0, Math.max(stp.T, comparison && !comparison.stp.err ? comparison.stp.T : 0), lo - pad, hi + pad]);
     if (comparison && !comparison.stp.err) includeView(p, comparison.stp.t.map((time, i) => [time, comparison.stp.y[i]]));
@@ -693,15 +752,8 @@
   }
 
   function renderLegends() {
-    const rootLegend = [
-      { label: '开环极点', symbol: '×', color: '--fg' },
-      { label: '开环零点', symbol: '○', color: '--fg' },
-      { label: '闭环极点', symbol: '▪', color: '--accent' },
-    ];
-    if (comparison) rootLegend.push({ label: '对比', symbol: '○', color: '--c3' });
     for (const container of document.querySelectorAll('[data-legend]')) {
-      const key = container.dataset.legend;
-      const legend = key === 'rl' ? rootLegend : P[key].legend;
+      const legend = P[container.dataset.legend].legend;
       const elements = legend.map(item => {
         const element = document.createElement('span');
         element.className = 'legend-item';
@@ -767,6 +819,18 @@
     }
   }
 
+  function figureFacts(id, items) {
+    $(id).innerHTML = items.map(([name, value]) => `<div><dt>${name}</dt><dd>${value}</dd></div>`).join('');
+  }
+
+  function calculationBlock(name, value, method, table = '') {
+    return `<section class="calc-block"><h3>${name}</h3>${value ? `<p class="calc-result">${value}</p>` : ''}${method ? `<p>${method}</p>` : ''}${table}</section>`;
+  }
+
+  function calculationTable(headings, rows) {
+    return `<table><thead><tr>${headings.map(text => `<th scope="col">${text}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(text => `<td>${text}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+
   function renderCalculations() {
     if (!sys) return;
     const realRoots = [...sys.poles, ...sys.zeros].filter(root => Math.abs(root[1]) < 1e-8 * (1 + Math.abs(root[0]))).map(root => root[0]).sort((a, b) => a - b);
@@ -779,17 +843,30 @@
       if (count % 2 === (state.sg * sys.kLead > 0 ? 1 : 0)) intervals.push(`(${fmt(a)}, ${fmt(b)})`);
     }
     const singular = Ctl.singularGains(sys, state.sg);
-    const rootNotes = [
-      `<p>特征方程 D(s) ${state.sg > 0 ? '+' : '−'} K N(s) = 0${sys.tau > 0 ? '，采用 τ=0 模型' : ''}。</p>`,
-      `<p>相角条件 ∠[${state.sg > 0 ? '' : '−'}N(s)/D(s)] = (2ℓ+1)π，幅值条件 K = |D(s)/N(s)|。</p>`,
-      `<p>实轴轨迹区段 ${Math.max(sys.n, sys.m) === 0 ? '静态增益系统无轨迹分支' : intervals.length ? intervals.join(' ∪ ') : '无'}。</p>`,
-    ];
-    if (asy) rootNotes.push(`<p>渐近线条数 n−m = ${sys.n - sys.m}，交点 σa = (Σp−Σz)/(n−m) = ${fmt(asy.sigma)}，方向角 ${asy.angles.map(angle => fmt(angle > 180 ? angle - 360 : angle) + '°').join('，')}。</p>`);
-    rootNotes.push(`<p>分离与会合候选点满足 N′D−ND′=0，保留 K 为正实数的解。${brks.length ? brks.map(point => `s = ${rootsStr([point.s])}，K = ${fmt(point.K)}`).join('；') : '当前模型无符合条件的候选点'}。</p>`);
-    rootNotes.push(`<p>虚轴边界由 D(jω) ${state.sg > 0 ? '+' : '−'} K N(jω)=0 求得。${cross.list.length ? cross.list.map(point => `ω = ${fmt(point.w)}，K = ${fmt(point.K)}`).join('；') : '当前模型无孤立的正增益交点'}。</p>`);
-    if (singular.length) rootNotes.push(`<p>最高次项在 K = ${singular.map(K => fmt(K)).join('，')} 时抵消，稳定区间在该边界处分段判定。</p>`);
-    rootNotes.push(`<p>逐段检查闭环极点，得到${sys.tau > 0 ? ' τ=0 模型的' : ''}稳定区间 ${kRangeStr()}。</p>`);
-    $('rootNotes').innerHTML = rootNotes.join('');
+    const sign = state.sg > 0 ? '+' : '−', term = state.sg > 0 ? '' : '−';
+    const leading = rootsStr(leadingPoles());
+    const currentRoots = closedAnalysis.kind === 'unknown' ? '未确定' : rootsStr(cl);
+    const interval = kRangeStr();
+    const unitModel = sys.tau > 0 ? '（τ = 0）' : '';
+    const closedLabel = { stable: '稳定', unstable: '不稳定', marginal: '临界', singular: '奇异增益', unknown: '待核查' }[closedAnalysis.kind];
+    figureFacts('rootFacts', [
+      ['稳定区间' + unitModel, interval], ['主导极点', leading],
+      ...(cross.list.length ? [['首个虚轴交点', 'K = ' + fmt(cross.list[0].K)]] : []),
+    ]);
+    $('rootNotes').innerHTML = [
+      calculationBlock('当前闭环' + unitModel, `K = ${fmt(state.K)} · ${closedLabel}`,
+        `将当前 K 代入 <code>D(s) ${sign} K N(s) = 0</code>。闭环极点为 ${currentRoots}。实部最大的极点为 ${leading}。`),
+      calculationBlock('实轴轨迹', Math.max(sys.n, sys.m) === 0 ? '无轨迹分支' : intervals.join(' ∪ ') || '无',
+        `对每段取一个试点，数右边的实极点和实零点，按重数计。当前模型取${state.sg * sys.kLead > 0 ? '奇' : '偶'}数段。`),
+      calculationBlock('渐近线', asy ? `${sys.n - sys.m} 条 · 中心 σₐ = ${fmt(asy.sigma)}` : '无通往无穷远的渐近线',
+        asy ? `用 <code>σₐ = (Σp − Σz) / (n − m)</code> 求中心。方向角为 ${anglesText(asy.angles)}。` : ''),
+      calculationBlock('分离与会合', brks.length ? '' : '无符合条件的点', `由特征方程得 <code>K(s) = ${state.sg > 0 ? '−' : ''}D(s) / N(s)</code>。令导数为零，保留 K 为正实数的解。实轴上的极大值对应分离，极小值对应会合。`,
+        brks.length ? calculationTable(['类型', '位置', '增益'], brks.map(point => [breakName(point), axisValue(point.s), fmt(point.K)])) : ''),
+      calculationBlock('虚轴与稳定边界' + unitModel, interval,
+        `令 <code>s = jω</code>，联立特征方程的实部和虚部。按交点增益${singular.length ? `及最高次项抵消处 K = ${singular.map(K => fmt(K)).join('、')}` : ''}分段，检查每段闭环极点是否全在左半平面。`,
+        cross.list.length ? calculationTable(['虚轴位置', 'ω / rad/s', '增益'], cross.list.map(point => [axisPoint(point.w), fmt(point.w), fmt(point.K)]))
+          : `<p>${cross.degenerate ? '轨迹含虚轴上的点，逐个检查增益对应的极点。' : '无孤立的正增益虚轴交点。'}</p>`),
+    ].join('');
 
     let slope = -20 * sys.type;
     const cornerRows = [];
@@ -797,17 +874,80 @@
       const atCorner = root => Math.abs(Cx.abs(root) - corner) < corner * 2e-5;
       const zeros = sys.zeros.filter(atCorner).length, poles = sys.poles.filter(atCorner).length;
       const next = slope + 20 * (zeros - poles);
-      cornerRows.push(`<tr><td>${fmt(corner)}</td><td>${zeros}</td><td>${poles}</td><td>${fmt(slope)} → ${fmt(next)}</td></tr>`);
+      cornerRows.push([fmt(corner), zeros, poles, `${fmt(slope)} → ${fmt(next)}`]);
       slope = next;
     }
-    const crossingRows = mar.gc.map(point => `<tr><td>0 dB</td><td>${fmt(point.w)}</td><td>γ = ${fmt(point.pm)}°</td></tr>`);
+    const crossingRows = mar.gc.map(point => ['0 dB', fmt(point.w), `γ = ${fmt(point.pm)}°`]);
     const phasePoints = mar.pc.slice(0, 8);
     if (mar.bestP && !phasePoints.includes(mar.bestP)) phasePoints.push(mar.bestP);
-    for (const point of phasePoints) crossingRows.push(`<tr><td>${fmt(point.level)}°</td><td>${point.atInfinity ? '∞' : fmt(point.w)}</td><td>h = ${fmt(point.gm)} dB</td></tr>`);
-    $('bodeNotes').innerHTML = (state.K === 0 ? '<p>K=0 时幅值为 0，相角与裕度未定义。下表描述 N(s)/D(s) 的结构。</p>' : '') + `<p>低频渐近线斜率为 −20v = ${fmt(-20 * sys.type)} dB/dec，其中 v 为系统型别。每个一阶零点增加 20 dB/dec，每个一阶极点减少 20 dB/dec。</p>` +
-      (cornerRows.length ? `<table><thead><tr><th>转折 ω / rad/s</th><th>零点数</th><th>极点数</th><th>斜率 / dB/dec</th></tr></thead><tbody>${cornerRows.join('')}</tbody></table>` : '<p>当前模型无有限的非零转折频率。</p>') +
-      (crossingRows.length ? `<table><thead><tr><th>交越条件</th><th>ω / rad/s</th><th>裕度</th></tr></thead><tbody>${crossingRows.join('')}</tbody></table>` : `<p>${state.K === 0 ? 'K=0，裕度未定义。' : '当前模型无有限频率的交越点。'}</p>`) +
-      '<p>顶部显示绝对值最小的裕度。多个交越点、开环不稳定系统及延迟系统的稳定性需结合奈氏判据分析。</p>';
+    for (const point of phasePoints) crossingRows.push([fmt(point.level) + '°', point.atInfinity ? '∞' : fmt(point.w), `h = ${fmt(point.gm)} dB`]);
+    const { bestG: g, bestP: p } = mar;
+    const gainMargin = p ? `${fmt(p.gm)} dB` : state.K === 0 ? '未定义' : '∞';
+    const phaseMargin = g ? `${fmt(g.pm)}°` : state.K === 0 ? '未定义' : '无 0 dB 交越';
+    const frequency = w => w === Infinity ? 'ω → ∞' : `${fmt(w)} rad/s`;
+    figureFacts('bodeFacts', [
+      ['相角裕度 γ', phaseMargin], ['幅值裕度 h', gainMargin],
+      ...(g ? [['0 dB 交越 ωc', frequency(g.w)]] : []),
+      ...(p ? [['相角交越 ωx', frequency(p.w)]] : []),
+    ]);
+    const openLoop = `L(jω) = ${term}K N(jω) / D(jω)${sys.tau > 0 ? ' · e<sup>−jωτ</sup>' : ''}`;
+    const phaseRef = g ? fmt(g.ph - g.pm) : '−180';
+    $('bodeNotes').innerHTML = [
+      calculationBlock('相角裕度 γ', g ? `${phaseMargin} · ωc = ${frequency(g.w)}` : phaseMargin,
+        g ? `先在幅频图找 0 dB，再到相频图读相角 ${fmt(g.ph)}°。相对 ${phaseRef}° 的角差为 ${phaseMargin}。` : '先在幅频图找 0 dB，再到相频图读角差。'),
+      calculationBlock('幅值裕度 h', p ? `${gainMargin} · ${p.atInfinity ? frequency(p.w) : 'ωx = ' + frequency(p.w)}` : gainMargin,
+        p ? `先找相角 ${fmt(p.level)}°，再读同一频率的幅值 ${fmt(p.db)} dB。到 0 dB 的差为 ${gainMargin}。` : state.K === 0 ? '零增益下相角和裕度未定义。' : '未检出负实轴交越。'),
+      crossingRows.length ? calculationBlock('交越点一览', '', mar.pc.length > phasePoints.length ? '相角交越列出前八个及所选裕度对应点。' : '',
+        calculationTable(['交越条件', 'ω / rad/s', '裕度'], crossingRows)) : '',
+      calculationBlock('幅频渐近线', `低频斜率 ${fmt(-20 * sys.type)} dB/dec`,
+        '每经过一个零点转折，斜率加 20 dB/dec。每经过一个极点转折，斜率减 20 dB/dec。重根按重数累计。',
+        cornerRows.length ? calculationTable(['转折 ω / rad/s', '零点', '极点', '前后斜率'], cornerRows) : ''),
+    ].join('');
+
+    const Pn = sys.poles.filter(pole => pole[0] > 0).length, Z = closedAnalysis.rightCount;
+    const hasCount = state.K > 0 && sys.tau === 0 && !['singular', 'unknown'].includes(closedAnalysis.kind);
+    const crossingAxis = closedAnalysis.axisCount > 0;
+    const winding = hasCount && !crossingAxis ? `R = ${fmt(Pn - Z)}` : '—';
+    figureFacts('nyqFacts', hasCount
+      ? [['开环右半平面 P', Pn], ['闭环右半平面 Z', Z], ['逆时针包围数', winding]]
+      : [['临界点', '(−1, j0)'], ['当前条件', state.K === 0 ? '曲线退化为原点' : '需单独判断包围数']]);
+    $('nyqNotes').innerHTML = [
+      calculationBlock('曲线从哪来', '临界点 (−1, j0)', `在 <code>${openLoop}</code> 中逐个代入 ω。横轴取实部，纵轴取虚部。实线箭头沿正频率增加方向。`),
+      calculationBlock('读两个交点', `单位圆 ${g ? frequency(g.w) : '—'} · 负实轴 ${p && !p.atInfinity ? frequency(p.w) : '—'}`,
+        '单位圆交点满足 |L(jω)| = 1。负实轴交点满足相角 −180° 或其等效角。'),
+      calculationBlock('判读包围数', hasCount ? `P = ${Pn} · Z = ${Z} · ${winding}` : '',
+        !hasCount ? '包围数需在适用的完整奈氏路径上判读。' : crossingAxis ? '闭环含虚轴极点，临界点需单独处理。' : '按开环和闭环的右半平面极点数，用 R = P − Z 推得完整路径的逆时针包围数。'),
+    ].join('');
+    figureFacts('nicFacts', [['相角裕度 γ', phaseMargin], ['幅值裕度 h', gainMargin]]);
+    $('nicNotes').innerHTML = [
+      calculationBlock('坐标与临界点', '(−180°, 0 dB)', '每个 ω 对应一个点，横轴取 ∠L(jω)，纵轴取 20 log₁₀|L(jω)|。相角平移整圈后，临界点与 −180° 等效。'),
+      calculationBlock('沿 0 dB 读相角裕度', phaseMargin,
+        g ? `在 0 dB 交点读得 ${fmt(g.ph)}°，量到等效临界相角 ${phaseRef}° 的有符号角差。` : '曲线与 0 dB 线相交时，可在该交点读角差。'),
+      calculationBlock('沿临界相角读幅值裕度', gainMargin,
+        p ? `在 ${fmt(p.level)}° 处读得 ${fmt(p.db)} dB，量到 0 dB 的有符号差。` : '先找曲线与临界相角线的交点，再沿幅值轴读差值。'),
+    ].join('');
+
+    const stepAvailable = !stp.err && stp.stable && Number.isFinite(stp.yss);
+    if (!stepAvailable) {
+      const reason = stp.err || '稳态指标未定义';
+      figureFacts('stepFacts', [['状态', reason]]);
+      $('stepNotes').innerHTML = calculationBlock('适用范围', reason, stp.err ? '' : '先检查闭环极点。存在虚轴极点或右半平面极点时，按时域曲线观察响应。');
+      return;
+    }
+    const overshoot = Number.isFinite(stp.os) ? `${fmt(stp.os)}%` : '未定义';
+    const settle = Number.isFinite(stp.ts) ? `${fmt(stp.ts)} s` : Math.abs(stp.yss) > 1e-12 ? '窗内未保持在带内' : '未定义';
+    const peak = Number.isFinite(stp.tp) ? stp.y[stp.t.indexOf(stp.tp)] : null;
+    figureFacts('stepFacts', [
+      ['稳态值', fmt(stp.yss)], ['超调量', overshoot], ['调节时间 · 2%', settle],
+    ]);
+    $('stepNotes').innerHTML = [
+      calculationBlock('稳态值', `c(∞) = ${fmt(stp.yss)} · 稳态误差 ${fmt(1 - stp.yss)}`,
+        `稳定时，单位阶跃输出的终值等于闭环直流增益。取 <code>T(s) = ${term}K N(s) / [D(s) ${sign} K N(s)]</code> 在 s = 0 的值。`),
+      calculationBlock('峰值与超调量', peak === null ? overshoot : `${fmt(peak)} · tp = ${fmt(stp.tp)} s · 超调 ${overshoot}`,
+        '沿稳态值的方向找仿真中的最突出点，计算它超出稳态值的比例。'),
+      calculationBlock('调节时间 · 2% 带', settle,
+        '以稳态值为中心画 ±2% 的带，读取仿真窗口内最后一次进入且随后始终留在带内的时刻。'),
+    ].join('');
   }
 
   function setView(view) {

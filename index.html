@@ -14,7 +14,7 @@
 <script>
   try { const theme = localStorage.getItem('theme'); if (theme) document.documentElement.dataset.theme = theme; } catch (error) {}
 </script>
-<link rel="stylesheet" href="style.css?v=0.3.0">
+<link rel="stylesheet" href="style.css?v=0.4.0">
 </head>
 <body>
 <header class="site-header">
@@ -125,6 +125,7 @@
         <canvas id="cRL" tabindex="0" aria-label="根轨迹图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rRL" class="readout"></div>
         <div class="plot-legend" data-legend="rl"></div>
+        <dl id="rootFacts" class="figure-facts" aria-label="根轨迹要点"></dl>
         <p id="rlModel" class="model-note" hidden></p>
         <details class="calculation"><summary>计算过程</summary><div id="rootNotes"></div></details>
       </figure>
@@ -134,6 +135,7 @@
         <canvas id="cPh" tabindex="0" aria-label="Bode 相频图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rBode" class="readout"></div>
         <div class="plot-legend" data-legend="mag"></div>
+        <dl id="bodeFacts" class="figure-facts" aria-label="Bode 图要点"></dl>
         <details class="calculation"><summary>计算过程</summary><div id="bodeNotes"></div></details>
       </figure>
       <figure class="fig secondary-figure" data-plot="nyq">
@@ -141,20 +143,26 @@
         <canvas id="cNyq" tabindex="0" aria-label="Nyquist 图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rNyq" class="readout"></div>
         <div class="plot-legend" data-legend="nyq"></div>
+        <dl id="nyqFacts" class="figure-facts" aria-label="Nyquist 图要点"></dl>
         <p id="nyqNote" class="model-note" hidden></p>
+        <details class="calculation"><summary>计算过程</summary><div id="nyqNotes"></div></details>
       </figure>
       <figure class="fig secondary-figure" data-plot="nic">
         <figcaption><h2>Nichols</h2><button class="expand-plot" data-focus="nic" type="button" aria-label="放大 Nichols 图">↗</button></figcaption>
         <canvas id="cNic" tabindex="0" aria-label="Nichols 图" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rNic" class="readout"></div>
         <div class="plot-legend" data-legend="nic"></div>
+        <dl id="nicFacts" class="figure-facts" aria-label="Nichols 图要点"></dl>
+        <details class="calculation"><summary>计算过程</summary><div id="nicNotes"></div></details>
       </figure>
       <figure class="fig secondary-figure" data-plot="step">
         <figcaption><h2>阶跃响应</h2><button class="expand-plot" data-focus="step" type="button" aria-label="放大阶跃响应">↗</button></figcaption>
         <canvas id="cStep" tabindex="0" aria-label="闭环单位阶跃响应" aria-describedby="plotKeyboardHelp"></canvas>
         <div id="rStep" class="readout"></div>
         <div class="plot-legend" data-legend="step"></div>
+        <dl id="stepFacts" class="figure-facts" aria-label="阶跃响应要点"></dl>
         <p id="mStep" class="model-note" hidden></p>
+        <details class="calculation"><summary>计算过程</summary><div id="stepNotes"></div></details>
       </figure>
       <div class="results-figure" data-plot="info">
         <details id="resultsDetails" class="results-details">
@@ -193,9 +201,9 @@
     <a href="https://github.com/Larryhul/control-plots/issues">反馈问题</a>
   </details>
 </dialog>
-<script src="js/math.js?v=0.3.0"></script>
-<script src="js/control.js?v=0.3.0"></script>
-<script src="js/plot.js?v=0.3.0"></script>
-<script src="js/app.js?v=0.3.0"></script>
+<script src="js/math.js?v=0.4.0"></script>
+<script src="js/control.js?v=0.4.0"></script>
+<script src="js/plot.js?v=0.4.0"></script>
+<script src="js/app.js?v=0.4.0"></script>
 </body>
 </html>

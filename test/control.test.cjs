@@ -186,3 +186,16 @@ test('A 24th-order model matches its analytic stability boundary', () => {
   assert.equal(Ctl.closedStatus(model, 1, boundary * 0.99).kind, 'stable');
   assert.equal(Ctl.closedStatus(model, 1, boundary * 1.01).rightCount, 2);
 });
+
+test('The fourth-order teaching example has the expected locus landmarks', () => {
+  const model = solve('1', 's(s+2)(s^2+4s+5)');
+  const asymptotes = Ctl.asymptotes(model, 1);
+  assert.equal(asymptotes.sigma, -1.5);
+  assert.deepEqual([...asymptotes.angles], [45, 135, 225, 315]);
+  const breakaway = Ctl.breakaways(model, 1, 1).find(point => point.kind === 'breakaway');
+  near(breakaway.s[0], -0.6018, 0.0001);
+  near(breakaway.K, 2.486, 0.001);
+  const crossing = Ctl.jwCross(model, 1).list[0];
+  near(crossing.w, Math.sqrt(5 / 3), 1e-10);
+  near(crossing.K, 170 / 9, 1e-10);
+});

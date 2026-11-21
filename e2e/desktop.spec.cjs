@@ -114,3 +114,35 @@ test('passes automated accessibility checks in the default workspace', async ({ 
   const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(violations.map(({ id, nodes }) => ({ id, targets: nodes.map(node => node.target) }))).toEqual([]);
 });
+
+test('draws the current landmarks and opens a result-first explanation for each figure', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await page.addInitScript(() => {
+    window.plotLabels = {};
+    const draw = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
+      if (this.canvas.id) (window.plotLabels[this.canvas.id] ||= new Set()).add(String(text));
+      return draw.call(this, text, ...args);
+    };
+  });
+  const example = { n: '1', d: 's(s+2)(s^2+4s+5)', k: '6.5' };
+  const checks = [
+    ['rl', { cRL: ['主导极点', '分离点', '渐近线中心', '虚轴交点'] }, '0 < K < 18.89', '当前闭环'],
+    ['bode', { cMag: ['0 dB 交越', '幅值裕度 h'], cPh: ['相角裕度 γ', '−180° 交越'] }, '9.266 dB', '相角裕度 γ'],
+    ['nyq', { cNyq: ['临界点', '单位圆交点', '负实轴交点'] }, 'R = 0', '曲线从哪来'],
+    ['nic', { cNic: ['临界点', '相角裕度 γ', '幅值裕度 h'] }, '46.2°', '坐标与临界点'],
+    ['step', { cStep: ['稳态值', '调节时间 · 2%'] }, '23.82%', '稳态值'],
+  ];
+  for (const [view, canvases, fact, method] of checks) {
+    // 独立加载每个焦点视图，核对真正绘制到画布上的短标签。
+    await page.goto('./?figure=' + view + '#' + new URLSearchParams({ ...example, view }));
+    const figure = page.locator(`figure[data-plot="${view}"]`);
+    await expect(figure.locator('.figure-facts')).toContainText(fact);
+    for (const [id, labels] of Object.entries(canvases)) {
+      await expect.poll(() => page.evaluate(canvas => [...(window.plotLabels[canvas] || [])], id)).toEqual(expect.arrayContaining(labels));
+    }
+    await figure.locator('.calculation > summary').click();
+    await expect(figure.locator('.calc-block h3').first()).toHaveText(method);
+    await expect(figure.locator('.calc-result').first()).toBeVisible();
+  }
+});

@@ -206,6 +206,70 @@ class Plot {
     return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy, t0 > 0, t1 < 1];
   }
 
+  _drawLabels(markers, ink, col, font, reserved) {
+    const g = this.g, { l: left, t: top } = this.m, right = left + this.pw, bottom = top + this.ph;
+    const size = this.W < 350 ? 11 : 12, lineHeight = size + 3;
+    const occupied = markers.map(({ x, y, marker }) => [x - (marker.r || 5) - 3, y - (marker.r || 5) - 3, 2 * (marker.r || 5) + 6, 2 * (marker.r || 5) + 6]);
+    if (reserved) occupied.push(reserved);
+    const labels = markers.filter(({ marker }) => marker.label).sort((a, b) => (b.marker.priority || 0) - (a.marker.priority || 0));
+    const budget = this.pw < 200 ? 4 : this.pw < 390 ? 7 : 12;
+    const overlaps = ([x, y, w, h], [a, b, u, v]) => x < a + u && x + w > a && y < b + v && y + h > b;
+    const paint = col('--plot-bg');
+    const placed = new Map();
+    let count = 0;
+    g.textBaseline = 'middle'; g.textAlign = 'left';
+    for (const { x, y, marker } of labels) {
+      if (count >= budget) break;
+      const lines = Array.isArray(marker.label) ? marker.label : [marker.label];
+      const key = lines.join('\n'), previous = placed.get(key);
+      if (previous && Math.hypot(x - previous.x, y - previous.y) < 10) continue;
+      const fontAt = i => `${lines.length > 1 && i === 0 ? '600 ' : ''}${size}px ${font}`;
+      const width = Math.ceil(Math.max(...lines.map((line, i) => { g.font = fontAt(i); return g.measureText(line).width; }))) + 8;
+      const height = lines.length * lineHeight + 4;
+      if (width > this.pw - 8 || height > this.ph - 8) continue;
+      let best = null;
+      for (const gap of [12, 25, 43, 65]) {
+        for (const [dx, dy] of [[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [0, 1], [1, 0], [-1, 0]]) {
+          const idealX = x + dx * gap - (1 - dx) * width / 2;
+          const idealY = y + dy * gap - (1 - dy) * height / 2;
+          const lx = Math.max(left + 4, Math.min(right - width - 4, idealX));
+          const ly = Math.max(top + 4, Math.min(bottom - height - 4, idealY));
+          const box = [lx, ly, width, height];
+          if (occupied.some(other => overlaps(box, other))) continue;
+          const endX = Math.max(lx, Math.min(lx + width, x)), endY = Math.max(ly, Math.min(ly + height, y));
+          const length = Math.hypot(endX - x, endY - y);
+          if (length > 78) continue;
+          let crossings = 0;
+          for (let row = Math.floor(ly / 8); row <= Math.floor((ly + height) / 8); row++) {
+            for (let column = Math.floor(lx / 8); column <= Math.floor((lx + width) / 8); column++) {
+              if (ink.has(row * 4096 + column)) crossings++;
+            }
+          }
+          const score = length + crossings * 13 + (Math.abs(idealX - lx) + Math.abs(idealY - ly)) * 0.15;
+          if (!best || score < best.score) best = { box, endX, endY, length, score };
+        }
+      }
+      if (!best) continue;
+      const [lx, ly] = best.box;
+      occupied.push([lx - 3, ly - 2, width + 6, height + 4]);
+      placed.set(key, { x, y });
+      count++;
+      if (best.length > 5) {
+        const offset = Math.min((marker.r || 4) + 2, best.length);
+        g.strokeStyle = col(marker.color || '--axis'); g.globalAlpha = 0.58; g.lineWidth = 0.9;
+        g.beginPath();
+        g.moveTo(x + (best.endX - x) * offset / best.length, y + (best.endY - y) * offset / best.length);
+        g.lineTo(best.endX, best.endY); g.stroke(); g.globalAlpha = 1;
+      }
+      lines.forEach((line, i) => {
+        g.font = fontAt(i); g.strokeStyle = paint; g.lineWidth = 3.5;
+        g.fillStyle = col(i === 0 ? '--fg' : '--fg2');
+        const ty = ly + 2 + (i + 0.5) * lineHeight;
+        g.strokeText(line, lx + 4, ty); g.fillText(line, lx + 4, ty);
+      });
+    }
+  }
+
   draw() {
     if (!this.W) return;
     const g = this.g, m = this.m, W = this.W, H = this.H, pw = this.pw, ph = this.ph;
@@ -265,15 +329,16 @@ class Plot {
     g.beginPath(); g.rect(m.l, m.t, pw, ph); g.clip();
     const L = m.l - 40, T = m.t - 40, R = m.l + pw + 40, B = m.t + ph + 40;
     const glow = parseFloat(cs.getPropertyValue('--glow')) || 0;
-    for (const r of this.regions) {            // 竖直色带（如右半平面）
-      const a = Math.max(m.l, this.X(r.x0)), b = Math.min(m.l + pw, this.X(r.x1));
-      if (b <= a) continue;
+    for (const r of this.regions) {
+      const a = Math.max(m.l, this.X(r.x0 ?? -Infinity)), b = Math.min(m.l + pw, this.X(r.x1 ?? Infinity));
+      const top = Math.max(m.t, this.Y(r.y1 ?? Infinity)), bottom = Math.min(m.t + ph, this.Y(r.y0 ?? -Infinity));
+      if (b <= a || bottom <= top) continue;
       if (r.hatch) {                             // 45° 剖面线
         g.save(); g.beginPath(); g.rect(a, m.t, b - a, ph); g.clip();
         g.strokeStyle = col(r.color); g.globalAlpha = r.alpha; g.lineWidth = 1; g.beginPath();
         for (let x = a - ph - ((a - ph) % 8); x < b; x += 8) { g.moveTo(x, m.t + ph); g.lineTo(x + ph, m.t); }
         g.stroke(); g.restore();
-      } else { g.globalAlpha = r.alpha; g.fillStyle = col(r.color); g.fillRect(a, m.t, b - a, ph); g.globalAlpha = 1; }
+      } else { g.globalAlpha = r.alpha; g.fillStyle = col(r.color); g.fillRect(a, top, b - a, bottom - top); g.globalAlpha = 1; }
     }
     for (const s of this.series) {             // 曲线下方的面积填充
       if (s.fill == null || !s.x.length) continue;
@@ -295,10 +360,14 @@ class Plot {
       g.beginPath(); g.moveTo(px, m.t); g.lineTo(px, m.t + ph); g.stroke();
     }
     g.lineJoin = 'round'; g.lineCap = 'round';
+    const ink = new Set(), arrows = [];
+    const hasLabels = this.markers.some(marker => marker.label);
     for (const s of this.series) {
       g.strokeStyle = col(s.color); g.lineWidth = s.width || 2; g.setLineDash(s.dash || []);
       g.beginPath();
       let px = NaN, py = NaN, conn = false;
+      const directional = [];
+      let visibleLength = 0;
       const n = s.x.length;
       for (let i = 0; i < n; i++) {
         const x = this.X(s.x[i]), y = this.Y(s.y[i]);
@@ -309,6 +378,21 @@ class Plot {
             if (!conn || c[4]) g.moveTo(c[0], c[1]);
             g.lineTo(c[2], c[3]);
             conn = !c[5];
+            if (hasLabels && (s.width || 2) >= 2 && !s.dash) {
+              const steps = Math.ceil(Math.max(Math.abs(c[2] - c[0]), Math.abs(c[3] - c[1])) / 7);
+              for (let j = 0; j <= steps; j++) {
+                const fraction = j / (steps || 1);
+                const sx = c[0] + fraction * (c[2] - c[0]), sy = c[1] + fraction * (c[3] - c[1]);
+                ink.add(Math.floor(sy / 8) * 4096 + Math.floor(sx / 8));
+              }
+            }
+            if (s.direction) {
+              const v = this._clip(c[0], c[1], c[2], c[3], m.l + 12, m.t + 12, m.l + pw - 12, m.t + ph - 12);
+              if (v) {
+                const length = Math.hypot(v[2] - v[0], v[3] - v[1]);
+                if (length) { visibleLength += length; directional.push({ v, length, end: visibleLength }); }
+              }
+            }
           } else conn = false;
         } else conn = false;
         px = ok ? x : NaN; py = ok ? y : NaN;
@@ -316,13 +400,26 @@ class Plot {
       if (glow && !s.dash && (s.width || 2) >= 2) { g.shadowColor = g.strokeStyle; g.shadowBlur = glow; }
       g.stroke();
       g.shadowBlur = 0;
+      if (visibleLength > 32) {
+        for (const fraction of [0.72, 0.53, 0.88, 0.36]) {
+          const target = visibleLength * fraction;
+          const { v, length, end } = directional.find(segment => segment.end >= target);
+          const t = 1 - (end - target) / length;
+          const x = v[0] + t * (v[2] - v[0]), y = v[1] + t * (v[3] - v[1]);
+          if (arrows.some(a => Math.hypot(this.X(a.x) - x, this.Y(a.y) - y) < 21)
+            || this.markers.some(k => Math.hypot(this.X(k.x) - x, this.Y(k.y) - y) < 13)) continue;
+          arrows.push({ x: this.invX(x), y: this.invY(y), dx: this.invX(v[2]) - this.invX(v[0]), dy: this.invY(v[3]) - this.invY(v[1]), type: 'arrow', color: s.color });
+          break;
+        }
+      }
     }
     g.setLineDash([]);
     const sxs = pw / (x1 - x0), sys_ = ph / (y1 - y0);
-    const boxes = [];
-    for (const k of this.markers) {
+    const anchors = [];
+    for (const k of [...arrows, ...this.markers]) {
       const x = this.X(k.x), y = this.Y(k.y);
       if (!(x > L && x < R && y > T && y < B)) continue;
+      if (x >= m.l && x <= m.l + pw && y >= m.t && y <= m.t + ph) anchors.push({ x, y, marker: k });
       const c = col(k.color || '--fg');
       g.strokeStyle = c; g.fillStyle = c; g.lineWidth = 2;
       const r = k.r || 5;
@@ -343,17 +440,12 @@ class Plot {
         }
         default: g.arc(x, y, k.r || 4, 0, 2 * Math.PI); g.fill(); g.strokeStyle = col('--plot-bg'); g.lineWidth = 1.5; g.stroke();
       }
-      if (k.label) {
-        g.font = '13px ' + fontFamily;
-        g.textAlign = k.align || 'left'; g.textBaseline = 'middle';
-        const lx = x + (k.align === 'right' ? -9 : 9), ly = y + (k.dyLabel != null ? k.dyLabel : -10);
-        const tw = g.measureText(k.label).width, bx0 = k.align === 'right' ? lx - tw : lx;
-        if (boxes.some(b => bx0 < b[1] + 4 && bx0 + tw > b[0] - 4 && Math.abs(ly - b[2]) < 16)) continue;
-        boxes.push([bx0, bx0 + tw, ly]);
-        g.lineWidth = 3; g.strokeStyle = col('--plot-bg'); g.strokeText(k.label, lx, ly);
-        g.fillStyle = col(k.labelColor || '--fg'); g.fillText(k.label, lx, ly);
-      }
     }
+    const showLegend = this.legend.length && this.o.drawLegend !== false;
+    g.font = '13px ' + fontFamily;
+    const legendWidth = showLegend ? Math.max(...this.legend.map(item => g.measureText(item.label).width)) + 44 : 0;
+    const legendBox = showLegend ? [m.l + pw - legendWidth - 8, m.t + 8, legendWidth, this.legend.length * 18 + 8] : null;
+    if (hasLabels) this._drawLabels(anchors, ink, col, fontFamily, legendBox);
     g.restore();
 
     g.strokeStyle = cAxis; g.lineWidth = 1;
@@ -369,16 +461,18 @@ class Plot {
       g.save(); g.translate(13, m.t + ph / 2); g.rotate(-Math.PI / 2);
       g.textBaseline = 'middle'; g.fillText(this.o.ylabel, 0, 0); g.restore();
     }
-    if (this.legend.length && this.o.drawLegend !== false) {
+    if (showLegend) {
       g.textAlign = 'left'; g.textBaseline = 'middle';
-      let wmax = 0;
-      for (const l of this.legend) wmax = Math.max(wmax, g.measureText(l.label).width);
-      const bw = wmax + 44, bh = this.legend.length * 18 + 8, bx = m.l + pw - bw - 8, by = m.t + 8;
+      const [bx, by, bw, bh] = legendBox;
       g.globalAlpha = 0.88; g.fillStyle = col('--plot-bg'); g.fillRect(bx, by, bw, bh); g.globalAlpha = 1;
       this.legend.forEach((l, i) => {
         const y = by + 13 + i * 18;
-        g.strokeStyle = col(l.color); g.lineWidth = 2; g.setLineDash(l.dash || []);
-        g.beginPath(); g.moveTo(bx + 8, y); g.lineTo(bx + 30, y); g.stroke(); g.setLineDash([]);
+        if (l.symbol) {
+          g.fillStyle = col(l.color); g.fillText(l.symbol, bx + 13, y);
+        } else {
+          g.strokeStyle = col(l.color); g.lineWidth = 2; g.setLineDash(l.dash || []);
+          g.beginPath(); g.moveTo(bx + 8, y); g.lineTo(bx + 30, y); g.stroke(); g.setLineDash([]);
+        }
         g.fillStyle = cText; g.fillText(l.label, bx + 36, y);
       });
     }

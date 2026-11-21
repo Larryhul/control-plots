@@ -186,8 +186,18 @@ canvas:focus-visible { outline: 2px solid var(--sig); outline-offset: -2px; }
 .calculation { color: var(--fg2); font-size: 15px; }
 .calculation > summary { padding: 7px 0; color: var(--muted); font-size: 14px; cursor: pointer; }
 .calculation p { margin: 12px 0; line-height: 1.8; }
+.figure-facts { display: flex; flex-wrap: wrap; gap: 7px 20px; margin: 10px 0 4px; padding: 9px 0 7px; border-top: 1px solid var(--line); }
+.figure-facts div { min-width: 0; max-width: 100%; }
+.figure-facts dt { color: var(--muted); font-size: 12px; }
+.figure-facts dd { margin: 1px 0 0; color: var(--fg); font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.calc-block { padding: 12px 0; border-top: 1px solid var(--line); }
+.calc-block h3 { margin: 0; color: var(--muted); font-size: 13px; font-weight: 650; }
+.calc-block .calc-result { margin: 4px 0; color: var(--fg); font-weight: 650; overflow-wrap: anywhere; }
+.calc-block p { margin: 4px 0 0; line-height: 1.65; }
+.calculation .calc-block table { margin: 7px 0 2px; }
+.calc-block code { font: inherit; font-variant-numeric: tabular-nums; color: var(--fg); }
 .calculation table { width: 100%; margin: 16px 0; border-collapse: collapse; font-size: 14px; }
-.calculation th, .calculation td { padding: 8px 5px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; font-weight: 400; }
+.calculation th, .calculation td { padding: 8px 5px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; font-weight: 400; overflow-wrap: anywhere; }
 .results-figure { grid-column: 1 / -1; }
 .results-details { margin-top: 10px; border-top: 1px solid var(--line); }
 .results-details > summary { display: flex; align-items: center; justify-content: space-between; min-height: 62px; gap: 20px; color: var(--fg2); font-size: 16px; cursor: pointer; list-style: none; }

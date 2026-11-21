@@ -399,13 +399,18 @@ const Ctl = (() => {
   function breakaways(sys, sg, Kref) {
     const P = Poly.trim(Poly.add(Poly.mul(Poly.deriv(sys.num), sys.den), Poly.scale(Poly.mul(sys.num, Poly.deriv(sys.den)), -1)));
     if (P.length < 2) return [];
+    const slope = Poly.deriv(P);
     const out = [];
     for (const s of Poly.cleanRoots(Poly.roots(P))) {
       if (s[1] < 0) continue;
       const N = Poly.eval(sys.num, s), D = Poly.eval(sys.den, s);
       if (Cx.abs(N) === 0) continue;
       const K = Cx.div([-D[0], -D[1]], N), Ks = K[0] * sg;
-      if (Ks > 1e-9 * Kref && isFinite(Ks) && Math.abs(K[1]) < 1e-5 * Math.abs(K[0])) out.push({ s, K: Ks });
+      if (Ks > 1e-9 * Kref && isFinite(Ks) && Math.abs(K[1]) < 1e-5 * Math.abs(K[0])) {
+        const curvature = s[1] === 0 ? sg * Poly.eval(slope, s)[0] : 0;
+        const kind = !Number.isFinite(curvature) || curvature === 0 ? 'stationary' : curvature < 0 ? 'breakaway' : 'breakin';
+        out.push({ s, K: Ks, kind });
+      }
     }
     return out;
   }
