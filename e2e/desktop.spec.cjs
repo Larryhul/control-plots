@@ -127,7 +127,7 @@ test('draws the current landmarks and opens a result-first explanation for each 
   });
   const example = { n: '1', d: 's(s+2)(s^2+4s+5)', k: '6.5' };
   const checks = [
-    ['rl', { cRL: ['主导极点', '分离点', '渐近线中心', '虚轴交点'] }, '0 < K < 18.89', '当前闭环'],
+    ['rl', { cRL: ['主导极点', '分离点', '渐近线中心', '虚轴交点', '45°', '−45°', '出射角', '−153.4°'] }, '0 < K < 18.89', '当前闭环'],
     ['bode', { cMag: ['0 dB 交越', '幅值裕度 h'], cPh: ['相角裕度 γ', '−180° 交越'] }, '9.266 dB', '相角裕度 γ'],
     ['nyq', { cNyq: ['临界点', '单位圆交点', '负实轴交点', '出射角', '入射角'] }, 'R = 0', '曲线从哪来'],
     ['nic', { cNic: ['临界点', '相角裕度 γ', '幅值裕度 h'] }, '46.2°', '坐标与临界点'],
@@ -144,6 +144,10 @@ test('draws the current landmarks and opens a result-first explanation for each 
     await figure.locator('.calculation > summary').click();
     await expect(figure.locator('.calc-block h3').first()).toHaveText(method);
     await expect(figure.locator('.calc-result').first()).toBeVisible();
+    if (view === 'rl') {
+      await expect(figure.locator('.calc-block').filter({ hasText: '渐近线角' })).toContainText('45°，135°，−135°，−45°');
+      await expect(figure.locator('.calc-block').filter({ hasText: '出射角与入射角' })).toContainText('出射 −153.4°');
+    }
     if (view === 'nyq') {
       await expect(figure.locator('.calc-block').filter({ hasText: '出射角' })).toContainText('−90°');
       await expect(figure.locator('.calc-block').filter({ hasText: '入射角' })).toContainText('从 0° 的射线一侧靠近');

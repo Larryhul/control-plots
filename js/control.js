@@ -453,6 +453,42 @@ const Ctl = (() => {
     return { sigma: (sumP - sumZ) / q, angles };
   }
 
+  function rootLocusAngles(sys, sg) {
+    const locations = [];
+    for (const [roots, type] of [[sys.zeros, 'zeros'], [sys.poles, 'poles']]) {
+      for (const root of roots) {
+        let point = locations.find(({ s }) => Cx.abs(Cx.sub(s, root)) <= 1e-10 * Math.max(Cx.abs(s), Cx.abs(root)));
+        if (!point) { point = { s: root, zeros: 0, poles: 0 }; locations.push(point); }
+        point[type]++;
+      }
+    }
+    const phaseCondition = sg * sys.kLead > 0 ? 180 : 0;
+    const endpoints = [];
+    for (const point of locations) {
+      const order = point.zeros - point.poles;
+      const multiplicity = Math.abs(order);
+      if (!order || (point.s[1] === 0 && multiplicity === 1)) continue;
+      let zeroPhase = 0, polePhase = 0;
+      const zeroBearings = [], poleBearings = [];
+      for (const other of locations) {
+        if (other === point) continue;
+        const [re, im] = Cx.sub(point.s, other.s);
+        const phase = Math.atan2(im, re) * 180 / PI;
+        zeroPhase += other.zeros * phase;
+        polePhase += other.poles * phase;
+        if (other.zeros) zeroBearings.push({ phase, count: other.zeros });
+        if (other.poles) poleBearings.push({ phase, count: other.poles });
+      }
+      // 从端点向外量射线角。沿 K 增大的方向到达零点时，箭头与射线反向。
+      const angles = Array.from({ length: multiplicity }, (_, i) => {
+        const ray = wrap180((phaseCondition - zeroPhase + polePhase + 360 * i) / order);
+        return { ray, travel: order < 0 ? ray : wrap180(ray + 180) };
+      });
+      endpoints.push({ s: point.s, kind: order < 0 ? 'pole' : 'zero', zeroPhase, polePhase, zeroBearings, poleBearings, order, angles });
+    }
+    return { phaseCondition, endpoints };
+  }
+
   /* 分离点/会合点：N'D − ND' = 0 且对应 K 为正实数 */
   function breakaways(sys, sg, Kref) {
     const P = Poly.trim(Poly.add(Poly.mul(Poly.deriv(sys.num), sys.den), Poly.scale(Poly.mul(sys.num, Poly.deriv(sys.den)), -1)));
@@ -608,7 +644,7 @@ const Ctl = (() => {
     return out;
   }
 
-  return { makeSystem, resp, asymDb, frequencyBounds, freqSamples, nyquistEnds, margins, rootLocus, asymptotes, breakaways, jwCross, singularGains, stableRanges, closedStatus, isStable, closedPoles, step, charPoly };
+  return { makeSystem, resp, asymDb, frequencyBounds, freqSamples, nyquistEnds, margins, rootLocus, rootLocusAngles, asymptotes, breakaways, jwCross, singularGains, stableRanges, closedStatus, isStable, closedPoles, step, charPoly };
 })();
 
 if (typeof module !== 'undefined') module.exports = { Ctl };

@@ -1,6 +1,6 @@
 {
   "name": "control-plots",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "Interactive control systems plots for learning and teaching",
   "license": "MIT",

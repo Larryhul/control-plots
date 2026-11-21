@@ -35,7 +35,7 @@ class Plot {
     this.view = [0, 1, 0, 1];
     this.home = [0, 1, 0, 1];
     this.series = []; this.markers = []; this.hlines = []; this.vlines = []; this.legend = [];
-    this.regions = [];
+    this.regions = []; this.angleGuides = [];
     this.cursor = null; this.vcursor = null; this.message = '';
     this.keyboardPosition = [0.5, 0.5];
     this.userView = false;
@@ -270,6 +270,37 @@ class Plot {
     }
   }
 
+  _drawAngleGuides(col) {
+    const g = this.g, { l: left, t: top } = this.m, right = left + this.pw, bottom = top + this.ph;
+    const anchors = [];
+    g.save();
+    for (const guide of this.angleGuides) {
+      const x = this.X(guide.x), y = this.Y(guide.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || x < left || x > right || y < top || y > bottom) continue;
+      const radians = guide.angle * Math.PI / 180;
+      const dx = Math.cos(radians), dy = -Math.sin(radians);
+      const edge = Math.min(dx > 0 ? (right - x) / dx : dx < 0 ? (left - x) / dx : Infinity,
+        dy > 0 ? (bottom - y) / dy : dy < 0 ? (top - y) / dy : Infinity);
+      const length = Math.min(edge - 5, guide.asymptote ? Math.max(40, Math.min(92, edge * 0.46)) : 30);
+      if (length < 10) continue;
+      const tx = x + dx * length, ty = y + dy * length;
+      g.strokeStyle = col(guide.color); g.lineWidth = 1.05;
+      if (!guide.asymptote) {
+        g.globalAlpha = 0.65; g.setLineDash([2, 3]); g.beginPath();
+        if (guide.baseline) { g.moveTo(x, y); g.lineTo(x + 19, y); }
+        g.moveTo(x, y); g.lineTo(tx, ty); g.stroke(); g.setLineDash([]);
+      }
+      if (guide.radius && Math.abs(guide.angle) > 0.01) {
+        g.globalAlpha = 0.8; g.beginPath();
+        g.arc(x, y, Math.min(guide.radius, length - 3), 0, -radians, guide.angle > 0);
+        g.stroke();
+      }
+      if (guide.label) anchors.push({ x: tx, y: ty, marker: { ...guide, r: 2 } });
+    }
+    g.restore();
+    return anchors;
+  }
+
   draw() {
     if (!this.W) return;
     const g = this.g, m = this.m, W = this.W, H = this.H, pw = this.pw, ph = this.ph;
@@ -361,7 +392,7 @@ class Plot {
     }
     g.lineJoin = 'round'; g.lineCap = 'round';
     const ink = new Set(), arrows = [];
-    const hasLabels = this.markers.some(marker => marker.label);
+    const hasLabels = this.markers.some(marker => marker.label) || this.angleGuides.some(guide => guide.label);
     for (const s of this.series) {
       g.strokeStyle = col(s.color); g.lineWidth = s.width || 2; g.setLineDash(s.dash || []);
       g.beginPath();
@@ -415,7 +446,7 @@ class Plot {
     }
     g.setLineDash([]);
     const sxs = pw / (x1 - x0), sys_ = ph / (y1 - y0);
-    const anchors = [];
+    const anchors = this._drawAngleGuides(col);
     for (const k of [...arrows, ...this.markers]) {
       const x = this.X(k.x), y = this.Y(k.y);
       if (!(x > L && x < R && y > T && y < B)) continue;

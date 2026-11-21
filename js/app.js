@@ -28,7 +28,8 @@
   }
   const breakName = point => ({ breakaway: '分离点', breakin: '会合点', stationary: '重根候选' })[point.kind];
   const axisPoint = w => w === 0 ? 's = 0' : 's = ±j' + fmt(w);
-  const anglesText = angles => angles.map(angle => fmt(angle > 180 ? angle - 360 : angle) + '°').join('，');
+  const angleText = angle => fmt(angle > 180 ? angle - 360 : angle) + '°';
+  const anglesText = angles => angles.map(angleText).join('，');
 
   function leadingPoles() {
     if (!cl.length) return [];
@@ -66,7 +67,7 @@
   ];
 
   const state = { K: 1, sg: 1, duration: 0, frequency: null, view: 'all', model: null };
-  let sys = null, S = null, RL = null, asy = null, brks = [], cross = null, ranges = [], mar = null, cl = [], stp = null;
+  let sys = null, S = null, RL = null, asy = null, rootAngles = null, brks = [], cross = null, ranges = [], mar = null, cl = [], stp = null;
   let rlStatic = { series: [], markers: [] }, rlHoverK = null, nyq = null, nyqEnds = null, nic = null;
   let closedAnalysis = null, comparison = null, rlHome = null;
   let feedbackTimer = 0;
@@ -126,15 +127,20 @@
     const sg = state.sg;
     RL = Ctl.rootLocus(sys, sg);
     asy = Ctl.asymptotes(sys, sg);
+    rootAngles = Ctl.rootLocusAngles(sys, sg);
     brks = Ctl.breakaways(sys, sg, RL.Kref);
     cross = Ctl.jwCross(sys, sg);
     ranges = Ctl.stableRanges(sys, sg, cross.list, RL.Kref);
-    const series = [], markers = [];
+    const series = [], markers = [], guides = [];
     if (asy) {
       const L = 1e5 * sys.R;
+      let cw = 0, ccw = 0;
       for (const a of asy.angles) {
         const t = a / DEG;
         series.push({ x: [asy.sigma, asy.sigma + L * Math.cos(t)], y: [0, L * Math.sin(t)], color: '--muted', dash: [6, 5], width: 1 });
+        const angle = a > 180 ? a - 360 : a;
+        const index = angle < 0 ? cw++ : angle > 0 ? ccw++ : 0;
+        guides.push({ x: asy.sigma, y: 0, angle, asymptote: true, color: '--muted', radius: index < 2 ? 12 + 5 * index : 0, label: angleText(angle), priority: 3.5 });
       }
       markers.push({ x: asy.sigma, y: 0, type: 'diamond', color: '--c3', label: ['渐近线中心', `σₐ = ${fmt(asy.sigma)}`], priority: 3, r: 4 });
     }
@@ -144,6 +150,12 @@
     for (const b of brks) {
       markers.push({ x: b.s[0], y: b.s[1], type: 'diamond', color: '--c1', r: 4, label: [breakName(b), `${axisValue(b.s)} · K ${fmt(b.K)}`], priority: 4 });
       if (b.s[1] !== 0) markers.push({ x: b.s[0], y: -b.s[1], type: 'diamond', color: '--c1', r: 4 });
+      if (b.kind !== 'stationary') {
+        for (const angle of [90, -90]) guides.push({
+          x: b.s[0], y: 0, angle, color: '--c1', radius: 11, baseline: angle > 0,
+          label: angle > 0 ? [b.kind === 'breakaway' ? '分离角' : '会合角', '±90°'] : '', priority: 2,
+        });
+      }
       add(b.s[0], b.s[1]); add(b.s[0], -b.s[1]);
     }
     for (const c of cross.list) {
@@ -157,11 +169,23 @@
         add(root[0], root[1]);
       }
     }
+    for (const endpoint of rootAngles.endpoints) {
+      let cw = 0, ccw = 0;
+      endpoint.angles.forEach(({ ray }, i) => {
+        const index = ray < 0 ? cw++ : ray > 0 ? ccw++ : 0;
+        guides.push({
+          x: endpoint.s[0], y: endpoint.s[1], angle: ray,
+          color: endpoint.kind === 'pole' ? '--c3' : '--c2', radius: index < 2 ? 13 + 5 * index : 0,
+          baseline: i === 0, label: [endpoint.kind === 'pole' ? '出射角' : '入射角', angleText(ray)], priority: 5,
+        });
+      });
+    }
     if (asy) add(asy.sigma, 0);
     add(0, 0);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
     const h = Math.max(x1 - x0, y1 - y0, 0.6 * sys.R, 1e-9) * 0.75, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     rlStatic = { series, markers };
+    P.rl.angleGuides = guides;
     P.rl.regions = [{ x0: 0, x1: Infinity, color: '--c2', alpha: 0.055 }];
     paintTrack();
     rlHome = [cx - h, cx + h, cy - h, cy + h];
@@ -906,15 +930,33 @@
     figureFacts('rootFacts', [
       ['稳定区间' + unitModel, interval], ['主导极点', leading],
       ...(cross.list.length ? [['首个虚轴交点', 'K = ' + fmt(cross.list[0].K)]] : []),
+      ...(asy ? [['渐近线角', asy.angles.length <= 6 ? anglesText(asy.angles) : `${asy.angles.length} 条 · 见计算过程`]] : []),
     ]);
+    const sumAngles = (name, bearings, sum) => {
+      const terms = bearings.length > 1 && bearings.length <= 5
+        ? bearings.map(({ phase, count }) => `${fmt(phase)}°${count > 1 ? ` × ${count}` : ''}`).join('、') + ' → ' : '';
+      return `${name} = ${terms}${fmt(sum)}°`;
+    };
+    const endpointRows = rootAngles.endpoints.map(point => {
+      const ray = anglesText(point.angles.map(angle => angle.ray));
+      return [
+        `${point.kind === 'pole' ? '极点' : '零点'} ${axisValue(point.s)}`,
+        `${sumAngles('Σz', point.zeroBearings, point.zeroPhase)}<br>${sumAngles('Σp', point.poleBearings, point.polePhase)}<br>r = ${fmt(point.order)}`,
+        point.kind === 'pole' ? `出射 ${ray}` : `入射射线 ${ray}<br>沿箭头 ${anglesText(point.angles.map(angle => angle.travel))}`,
+      ];
+    });
+    const realTurn = brks.some(point => point.kind !== 'stationary');
     $('rootNotes').innerHTML = [
       calculationBlock('当前闭环' + unitModel, `K = ${fmt(state.K)} · ${closedLabel}`,
         `将当前 K 代入 <code>D(s) ${sign} K N(s) = 0</code>。闭环极点为 ${currentRoots}。实部最大的极点为 ${leading}。`),
       calculationBlock('实轴轨迹', Math.max(sys.n, sys.m) === 0 ? '无轨迹分支' : intervals.join(' ∪ ') || '无',
         `对每段取一个试点，数右边的实极点和实零点，按重数计。当前模型取${state.sg * sys.kLead > 0 ? '奇' : '偶'}数段。`),
-      calculationBlock('渐近线', asy ? `${sys.n - sys.m} 条 · 中心 σₐ = ${fmt(asy.sigma)}` : '无通往无穷远的渐近线',
-        asy ? `用 <code>σₐ = (Σp − Σz) / (n − m)</code> 求中心。方向角为 ${anglesText(asy.angles)}。` : ''),
-      calculationBlock('分离与会合', brks.length ? '' : '无符合条件的点', `由特征方程得 <code>K(s) = ${state.sg > 0 ? '−' : ''}D(s) / N(s)</code>。令导数为零，保留 K 为正实数的解。实轴上的极大值对应分离，极小值对应会合。`,
+      calculationBlock('渐近线角', asy ? anglesText(asy.angles) : '无通往无穷远的渐近线',
+        asy ? `用 <code>σₐ = (Σp − Σz) / (n − m)</code> 得到中心 ${fmt(asy.sigma)}。将 <code>n − m = ${sys.n - sys.m}</code> 代入 <code>θₖ = (${rootAngles.phaseCondition > 0 ? '2k + 1' : '2k'}) × 180° / (n − m)</code>，从 k = 0 开始依次取角。` : ''),
+      endpointRows.length ? calculationBlock('出射角与入射角', `相角条件 ${rootAngles.phaseCondition}°`,
+        '从其余零点、极点向所求端点连线，从正实轴逆时针量角。分别求和得到 Σz 和 Σp。代入 <code>θ = (相角条件 − Σz + Σp + 360°ℓ) / r</code>，r 为此处零点重数减极点重数。入射射线从零点向外量，沿曲线进入零点的箭头相差 180°。',
+        calculationTable(['端点', '相角代入', '角度'], endpointRows)) : '',
+      calculationBlock('分离与会合', realTurn ? '实轴二重分离或会合点 · ±90°' : brks.length ? '' : '无符合条件的点', `由特征方程得 <code>K(s) = ${state.sg > 0 ? '−' : ''}D(s) / N(s)</code>。令导数为零，保留 K 为正实数的解。实轴上的极大值对应分离，极小值对应会合。${realTurn ? '二重转折附近，K 的变化与 (s − sᵦ)² 成正比，非实分支与实轴正交。' : ''}`,
         brks.length ? calculationTable(['类型', '位置', '增益'], brks.map(point => [breakName(point), axisValue(point.s), fmt(point.K)])) : ''),
       calculationBlock('虚轴与稳定边界' + unitModel, interval,
         `令 <code>s = jω</code>，联立特征方程的实部和虚部。按交点增益${singular.length ? `及最高次项抵消处 K = ${singular.map(K => fmt(K)).join('、')}` : ''}分段，检查每段闭环极点是否全在左半平面。`,

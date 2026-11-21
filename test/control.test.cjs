@@ -244,3 +244,31 @@ test('Nyquist angles handle delay, cancellation and constant loci', () => {
   assert.equal(zero.start.limit, 0);
   assert.equal(zero.end.angle, undefined);
 });
+
+test('Root-locus departure angles follow conjugacy and the signed phase condition', () => {
+  const model = solve('1', 's(s+2)(s^2+4s+5)');
+  const normal = Ctl.rootLocusAngles(model, 1);
+  const upper = normal.endpoints.find(point => point.s[1] > 0);
+  const lower = normal.endpoints.find(point => point.s[1] < 0);
+  assert.equal(normal.phaseCondition, 180);
+  assert.equal(upper.kind, 'pole');
+  near(upper.polePhase, 333.434948822922, 1e-8);
+  near(upper.angles[0].ray, -153.434948822922, 1e-8);
+  near(lower.angles[0].ray, -upper.angles[0].ray, 1e-8);
+  const negative = Ctl.rootLocusAngles(model, -1);
+  assert.equal(negative.phaseCondition, 0);
+  near(negative.endpoints.find(point => point.s[1] > 0).angles[0].ray, 26.565051177078, 1e-8);
+});
+
+test('Root-locus arrival rays, repeated endpoints and common factors use the net order', () => {
+  const model = solve('s^2+2s+2', '(s+2)^2');
+  const { endpoints } = Ctl.rootLocusAngles(model, 1);
+  const zero = endpoints.find(point => point.kind === 'zero' && point.s[1] > 0);
+  near(zero.angles[0].ray, 180, 1e-8);
+  near(zero.angles[0].travel, 0, 1e-8);
+  const pole = endpoints.find(point => point.kind === 'pole');
+  assert.equal(pole.order, -2);
+  assert.deepEqual([...pole.angles.map(angle => Math.round(angle.ray)).sort((a, b) => a - b)], [-90, 90]);
+  const common = solve('s^2+2s+2', '(s^2+2s+2)(s+2)');
+  assert.equal(Ctl.rootLocusAngles(common, 1).endpoints.length, 0);
+});
