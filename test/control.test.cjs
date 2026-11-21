@@ -199,3 +199,48 @@ test('The fourth-order teaching example has the expected locus landmarks', () =>
   near(crossing.w, Math.sqrt(5 / 3), 1e-10);
   near(crossing.K, 170 / 9, 1e-10);
 });
+
+test('Nyquist limits distinguish the ray and travel angles at each end', () => {
+  const model = solve('1', 's(s+2)(s^2+4s+5)');
+  const { start, end } = Ctl.nyquistEnds(model, 1, 6.5);
+  assert.equal(start.kind, 'infinity');
+  assert.equal(start.angle, -90);
+  assert.equal(start.travel, 90);
+  near(start.term.value, 0.65, 1e-12);
+  assert.equal(end.kind, 'zero');
+  assert.equal(end.phase, -360);
+  assert.equal(end.ray, 0);
+  assert.equal(end.angle, 180);
+  const negative = Ctl.nyquistEnds(model, -1, 6.5);
+  assert.equal(negative.start.angle, 90);
+  assert.equal(negative.end.angle, 0);
+});
+
+test('Nyquist angles at finite nonzero endpoints use the first change from the limit', () => {
+  const { start, end } = Ctl.nyquistEnds(solve('s+2', 's+1'), 1, 1);
+  assert.equal(start.limit, 2);
+  assert.equal(start.angle, -90);
+  assert.equal(end.limit, 1);
+  assert.equal(end.ray, -90);
+  assert.equal(end.angle, 90);
+  const secondOrder = Ctl.nyquistEnds(solve('s^2+s+2', 's^2+s+1'), 1, 1).end;
+  assert.equal(secondOrder.term.power, -2);
+  assert.equal(secondOrder.angle, 0);
+});
+
+test('Nyquist angles handle delay, cancellation and constant loci', () => {
+  const delayed = Ctl.nyquistEnds(solve('s+1', '1', 1), 1, 1);
+  assert.equal(delayed.start.term.power, 2);
+  near(delayed.start.term.value, -0.5, 1e-12);
+  assert.equal(delayed.start.angle, 0);
+  assert.equal(delayed.end.angle, undefined);
+  assert.equal(delayed.end.rotating, true);
+  assert.equal(Ctl.nyquistEnds(solve('1', 's+1', 1), 1, 1).end.kind, 'zero');
+  assert.equal(Ctl.nyquistEnds(solve('s+2', 's+1', 1), 1, 1).end.kind, 'circle');
+  const constant = Ctl.nyquistEnds(solve('2(s+1)', 's+1'), 1, 1);
+  assert.equal(constant.start.kind, 'constant');
+  assert.equal(constant.end.kind, 'constant');
+  const zero = Ctl.nyquistEnds(solve('1', 's+1'), 1, 0);
+  assert.equal(zero.start.limit, 0);
+  assert.equal(zero.end.angle, undefined);
+});

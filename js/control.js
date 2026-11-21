@@ -162,6 +162,64 @@ const Ctl = (() => {
 
   const wrap180 = x => x - 360 * Math.ceil((x - 180) / 360);
 
+  // N/D · exp(−τs) 的第一项非零变化，从导数的分子 N′D − ND′ − τND 读出。
+  function nyquistCorrection(num, den, tau) {
+    const numScale = Math.max(...num.map(Math.abs)), denScale = Math.max(...den.map(Math.abs));
+    const n = num.map(value => value / numScale), d = den.map(value => value / denScale);
+    const timeScale = Math.max(1, tau);
+    for (let degree = 0; degree < n.length + d.length - 1; degree++) {
+      let sum = 0, size = 0;
+      for (let i = 0; i < n.length; i++) {
+        const j = degree + 1 - i;
+        const derivative = n[i] * (d[j] || 0) * (i - j) / timeScale;
+        const delay = n[i] * (d[j - 1] || 0) * (tau / timeScale);
+        sum += derivative - delay;
+        size += Math.abs(derivative) + Math.abs(delay);
+      }
+      if (Math.abs(sum) <= 16 * Number.EPSILON * size) continue;
+      const power = degree + 1;
+      const logMagnitude = Math.log(Math.abs(sum)) + Math.log(timeScale) + Math.log(numScale)
+        + Math.log(denScale) - 2 * Math.log(Math.abs(den[0])) - Math.log(power);
+      return { sign: Math.sign(sum), logMagnitude, power };
+    }
+    return null;
+  }
+
+  function nyquistEnds(sys, sg, K) {
+    if (K === 0) {
+      const zero = { kind: 'constant', limit: 0 };
+      return { start: zero, end: zero };
+    }
+    const lowNum = sys.num.findIndex(value => value !== 0), lowDen = sys.den.findIndex(value => value !== 0);
+    const logGain = Math.log(K);
+    function describe(num, den, power, high, tau) {
+      const sign = sg * Math.sign(num[0]) * Math.sign(den[0]);
+      const magnitude = Math.abs(num[0] / den[0] * K);
+      const leading = sign * (Number.isFinite(magnitude) && magnitude !== 0
+        ? magnitude : Math.exp(logGain + Math.log(Math.abs(num[0])) - Math.log(Math.abs(den[0]))));
+      const grows = high ? power > 0 : power < 0;
+      const kind = power === 0 ? 'finite' : grows ? 'infinity' : 'zero';
+      const limit = kind === 'finite' ? leading : grows ? Infinity : 0;
+      if (high && tau > 0) return { kind: power === 0 ? 'circle' : kind, limit, rotating: true, leading, power, sign };
+      const correction = power === 0 ? nyquistCorrection(num, den, tau) : null;
+      if (power === 0 && !correction) return { kind: 'constant', limit };
+      const term = correction ? {
+        power: high ? -correction.power : correction.power,
+        value: sg * correction.sign * Math.exp(logGain + correction.logMagnitude), sign: sg * correction.sign,
+      } : { power, value: leading, sign };
+      const phase = term.power * 90 + (term.sign < 0 ? 180 : 0);
+      const ray = wrap180(phase);
+      // 有限终点处沿箭头朝向终点。无穷远端用相对原点的射线描述。
+      const reverse = high ? !grows : grows;
+      const travel = wrap180(ray + (reverse ? 180 : 0));
+      return { kind, limit, term, phase, ray, travel, angle: grows ? ray : travel };
+    }
+    return {
+      start: describe(sys.num.slice(lowNum), sys.den.slice(lowDen), lowNum - lowDen, false, sys.tau),
+      end: describe(sys.num.slice().reverse(), sys.den.slice().reverse(), sys.m - sys.n, true, sys.tau),
+    };
+  }
+
   function bisect(fn, a, b) {
     let fa = fn(a);
     for (let i = 0; i < 50; i++) {
@@ -550,7 +608,7 @@ const Ctl = (() => {
     return out;
   }
 
-  return { makeSystem, resp, asymDb, frequencyBounds, freqSamples, margins, rootLocus, asymptotes, breakaways, jwCross, singularGains, stableRanges, closedStatus, isStable, closedPoles, step, charPoly };
+  return { makeSystem, resp, asymDb, frequencyBounds, freqSamples, nyquistEnds, margins, rootLocus, asymptotes, breakaways, jwCross, singularGains, stableRanges, closedStatus, isStable, closedPoles, step, charPoly };
 })();
 
 if (typeof module !== 'undefined') module.exports = { Ctl };

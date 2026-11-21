@@ -67,7 +67,7 @@
 
   const state = { K: 1, sg: 1, duration: 0, frequency: null, view: 'all', model: null };
   let sys = null, S = null, RL = null, asy = null, brks = [], cross = null, ranges = [], mar = null, cl = [], stp = null;
-  let rlStatic = { series: [], markers: [] }, rlHoverK = null, nyq = null, nic = null;
+  let rlStatic = { series: [], markers: [] }, rlHoverK = null, nyq = null, nyqEnds = null, nic = null;
   let closedAnalysis = null, comparison = null, rlHome = null;
   let feedbackTimer = 0;
   const gainScale = { low: -3, high: 4 };
@@ -282,6 +282,7 @@
     cl = closedAnalysis.poles;
     S = Ctl.freqSamples(sys, sg, K);
     mar = Ctl.margins(sys, sg, S, K);
+    nyqEnds = Ctl.nyquistEnds(sys, sg, K);
     stp = sys.tau > 0 ? { err: '阶跃仿真适用于 τ=0' } : Ctl.step(sys, sg, K, state.duration, closedAnalysis);
     fitBodeRange();
     drawRL(); bodeRefresh(); drawNyq(); drawNic(); drawStep(); renderInfo(); renderKPI();
@@ -504,6 +505,11 @@
       if (Math.hypot(re[i], im[i]) > Lm) continue;
       x0 = Math.min(x0, re[i]); x1 = Math.max(x1, re[i]); y1 = Math.max(y1, Math.abs(im[i]));
     }
+    for (const endpoint of [nyqEnds.start, nyqEnds.end]) {
+      if ((!endpoint.rotating || endpoint.kind === 'zero') && Number.isFinite(endpoint.limit) && Math.abs(endpoint.limit) <= Lm) {
+        x0 = Math.min(x0, endpoint.limit); x1 = Math.max(x1, endpoint.limit);
+      }
+    }
     const dx = (x1 - x0) * 0.1, hy = y1 * 1.12, hx0 = x0 - dx, hx1 = x1 + dx;
     P.nyq.setHome([hx0, hx1, -hy, hy]);
     const uc = { x: [], y: [], color: '--muted', dash: [3, 4], width: 1 };
@@ -534,6 +540,24 @@
     highlightedCrossings(mar.gc, mar.bestG).forEach(g => mk.push({ x: Math.cos(g.ph / DEG), y: Math.sin(g.ph / DEG), type: 'dot', color: '--c3', r: 3.5, label: ['单位圆交点', `ωc = ${fmt(g.w)}`], priority: g === mar.bestG ? 3 : 0 }));
     highlightedCrossings(mar.pc, mar.bestP).filter(p => !p.atInfinity).forEach(p => mk.push({ x: -Math.pow(10, p.db / 20), y: 0, type: 'dot', color: '--c3', r: 3.5, label: ['负实轴交点', `ωx = ${fmt(p.w)}`], priority: p === mar.bestP ? 3 : 0 }));
     mk.push({ x: -1, y: 0, type: 'plus', color: '--c2', label: ['临界点', '(−1, j0)'], priority: 6 });
+    for (const [high, endpoint] of [[false, nyqEnds.start], [true, nyqEnds.end]]) {
+      if (endpoint.rotating && endpoint.kind === 'zero') {
+        mk.push({ x: 0, y: 0, type: 'o', r: 3, color: '--c3', label: ['高频绕向原点', '无固定入射角'], priority: 4 });
+      }
+      if (endpoint.angle == null) continue;
+      const label = [high ? '入射角' : '出射角', `${fmt(endpoint.angle)}°${endpoint.kind === 'infinity' ? ' · 无穷远' : ''}`];
+      const direction = endpoint.travel / DEG;
+      const arrow = { type: 'arrow', dx: Math.cos(direction), dy: Math.sin(direction), color: '--c3', priority: 5 };
+      if (endpoint.kind === 'infinity') {
+        const visible = (real, i) => real > hx0 && real < hx1 && Math.abs(im[i]) < hy * 0.91;
+        const i = high ? re.findLastIndex(visible) : re.findIndex(visible);
+        if (i >= 0) mk.push({ ...arrow, x: re[i], y: im[i], label });
+      } else if (Number.isFinite(endpoint.limit)) {
+        const ray = endpoint.ray / DEG, gap = 0.13 * hy;
+        mk.push({ x: endpoint.limit, y: 0, type: 'o', r: 3, color: '--c3', label, priority: 5 });
+        mk.push({ ...arrow, x: endpoint.limit + gap * Math.cos(ray), y: gap * Math.sin(ray) });
+      }
+    }
     P.nyq.markers = mk;
     P.nyq.legend = [{ label: '正频率（箭头沿 ω 增大）', color: '--c1' }, { label: '负频率', color: '--c1', dash: [5, 4] }, { label: '单位圆', color: '--muted', dash: [3, 4] }];
     if (comparison) P.nyq.legend.push({ label: '对比', color: '--c3', dash: [6, 4] });
@@ -831,6 +855,36 @@
     return `<table><thead><tr>${headings.map(text => `<th scope="col">${text}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(text => `<td>${text}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   }
 
+  function nyquistAngleValue(endpoint) {
+    if (endpoint.rotating) return '无固定角';
+    return endpoint.angle == null ? '未定义' : `${fmt(endpoint.angle)}°`;
+  }
+
+  function nyquistAngleBlock(endpoint, high) {
+    const freq = high ? 'ω → ∞' : 'ω → 0⁺';
+    const title = `${high ? '入射角' : '出射角'} · ${freq}`;
+    const point = endpoint.limit === 0 ? '原点' : `实轴 ${fmt(endpoint.limit)}`;
+    if (endpoint.rotating) {
+      const limit = { zero: '绕向原点', circle: `趋近半径为 ${fmt(Math.abs(endpoint.leading))} 的圆`, infinity: '向无穷远绕转' }[endpoint.kind];
+      const base = endpoint.power * 90 + (endpoint.sign < 0 ? 180 : 0);
+      return calculationBlock(title, `无固定角 · ${limit}`, `高频相角约为 <code>${fmt(base)}° − ωτ × 180°/π</code>。纯延迟 τ = ${fmt(sys.tau)} s 使相角持续绕转。`);
+    }
+    if (!endpoint.term) return calculationBlock(title, '未定义', `环路频率响应恒为 ${fmt(endpoint.limit)}，曲线是一个点。`);
+    const { power, value, sign } = endpoint.term;
+    const reference = endpoint.kind === 'finite' ? 'L(jω) − ' + (high ? 'L∞' : 'L₀') : 'L(jω)';
+    const coefficient = Number.isFinite(value) && value !== 0 ? fmt(value) : sign < 0 ? '负实系数' : '正实系数';
+    const expansion = `<code>${reference} ≈ ${coefficient} · (jω)<sup>${power}</sup></code>`;
+    const phase = `${fmt(power)} × 90°${sign < 0 ? ' + 180°' : ''} = ${fmt(endpoint.phase)}°${endpoint.phase !== endpoint.ray ? `，等效 ${fmt(endpoint.ray)}°` : ''}`;
+    const method = endpoint.kind === 'finite'
+      ? high ? '令 u = 1/s，按 u 重排分子分母。扣除终值后取最低非零次项。'
+        : `扣除起点 L₀ 后按 s 展开，取最低非零次项。${sys.tau > 0 ? '低频展开同时保留延迟项 e<sup>−τs</sup>。' : ''}`
+      : high ? '用分子和分母的最高次项相除。' : '用分子和分母的最低非零次项相除。';
+    let explanation = `${method}代入 s = jω，得 ${expansion}。相角为 ${phase}。`;
+    if (endpoint.kind === 'infinity') explanation += `用射线角标记无穷远端，正频率箭头方向为 ${fmt(endpoint.travel)}°。`;
+    else if (high) explanation += `曲线从 ${fmt(endpoint.ray)}° 的射线一侧靠近，朝终点的行进方向为 ${fmt(endpoint.angle)}°。`;
+    return calculationBlock(title, `${nyquistAngleValue(endpoint)} · ${endpoint.kind === 'infinity' ? '无穷远射线角' : (high ? '终点 ' : '起点 ') + point}`, explanation);
+  }
+
   function renderCalculations() {
     if (!sys) return;
     const realRoots = [...sys.poles, ...sys.zeros].filter(root => Math.abs(root[1]) < 1e-8 * (1 + Math.abs(root[0]))).map(root => root[0]).sort((a, b) => a - b);
@@ -908,11 +962,16 @@
     const hasCount = state.K > 0 && sys.tau === 0 && !['singular', 'unknown'].includes(closedAnalysis.kind);
     const crossingAxis = closedAnalysis.axisCount > 0;
     const winding = hasCount && !crossingAxis ? `R = ${fmt(Pn - Z)}` : '—';
-    figureFacts('nyqFacts', hasCount
-      ? [['开环右半平面 P', Pn], ['闭环右半平面 Z', Z], ['逆时针包围数', winding]]
-      : [['临界点', '(−1, j0)'], ['当前条件', state.K === 0 ? '曲线退化为原点' : '需单独判断包围数']]);
+    figureFacts('nyqFacts', [
+      ['出射角', nyquistAngleValue(nyqEnds.start)], ['入射角（沿箭头）', nyquistAngleValue(nyqEnds.end)],
+      ...(nyqEnds.end.ray != null && nyqEnds.end.ray !== nyqEnds.end.angle ? [['终点靠近射线', `${fmt(nyqEnds.end.ray)}°`]] : []),
+      ...(hasCount ? [['开环右半平面 P', Pn], ['闭环右半平面 Z', Z], ['逆时针包围数', winding]]
+        : [['临界点', '(−1, j0)'], ['当前条件', state.K === 0 ? '曲线退化为原点' : '需单独判断包围数']]),
+    ]);
     $('nyqNotes').innerHTML = [
-      calculationBlock('曲线从哪来', '临界点 (−1, j0)', `在 <code>${openLoop}</code> 中逐个代入 ω。横轴取实部，纵轴取虚部。实线箭头沿正频率增加方向。`),
+      calculationBlock('曲线从哪来', '临界点 (−1, j0)', `在 <code>${openLoop}</code> 中逐个代入 ω。实线箭头沿正频率增加方向，角度从实轴正向量起，逆时针为正。`),
+      nyquistAngleBlock(nyqEnds.start, false),
+      nyquistAngleBlock(nyqEnds.end, true),
       calculationBlock('读两个交点', `单位圆 ${g ? frequency(g.w) : '—'} · 负实轴 ${p && !p.atInfinity ? frequency(p.w) : '—'}`,
         '单位圆交点满足 |L(jω)| = 1。负实轴交点满足相角 −180° 或其等效角。'),
       calculationBlock('判读包围数', hasCount ? `P = ${Pn} · Z = ${Z} · ${winding}` : '',
